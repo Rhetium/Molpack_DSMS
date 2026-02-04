@@ -12,7 +12,7 @@ class MaterialComercial(Base):
         default=uuid.uuid4
     )
     nombre_corporativo = Column(String, nullable=False)
-    familia = Column(Text, nullable=True)
+    contenido = Column(Text, nullable=True)
     categoria = Column(Text, nullable=True)
     material_base = Column(Text, nullable=True)
     capacidad_nominal = Column(Text, nullable=True)

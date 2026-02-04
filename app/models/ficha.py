@@ -16,6 +16,7 @@ class FichaTecnica(Base):
         ForeignKey("material_comercial.id_material_corporativo"),
         nullable=False
     )
+    codigo_ficha_local = Column(Text, nullable=False)
     codigo_material_local = Column(Text, nullable=False)
     codigo_version = Column(Text, nullable=False)
     usuario_creador = Column(Text, nullable=False)
