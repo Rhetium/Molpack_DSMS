@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from app.schemas.material import MaterialLiteSchema
 
+
 class FichaTecnicaSchema(BaseModel):
     id_ficha: UUID
     id_material_corporativo: UUID
@@ -25,13 +26,11 @@ class FichaTecnicaSchema(BaseModel):
     class Config:
         from_attributes = True
 
+
 class FichaTecnicaCreateSchema(BaseModel):
     id_material_corporativo: UUID
-    codigo_ficha_local: str | None = None
     codigo_material_local: str | None = None
-    codigo_version: str | None = None
     usuario_creador: str | None = None
-    estado_ficha: str | None = None
     pais: str | None = None
 
     caracteristicas: dict | None = None
@@ -42,6 +41,7 @@ class FichaTecnicaCreateSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class FichaTecnicaWithMaterialSchema(BaseModel):
     id_ficha: UUID
