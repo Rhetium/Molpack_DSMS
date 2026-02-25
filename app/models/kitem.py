@@ -10,14 +10,25 @@ del paper DSMS de Nahshon et al. (2023):
 - Metadata:  almacenada aquí (id, ktype, nombre, descripción, estado, fechas, usuarios)
 - Data Container: almacenado en las tablas de extensión (JSONB en ficha_tecnica, etc.)
 - Semantic Graph: representado por las relaciones en kitem_relacion
+
+ACTUALIZACIÓN pgvector:
+- Se agrega columna `embedding` (vector 384D) para búsqueda semántica.
+- El embedding se genera a partir de nombre + descripción + metadata del k-item.
+- Permite búsqueda por similitud coseno y detección de duplicados.
 """
 
 from sqlalchemy import Column, Text, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 from app.core.database import Base
 import uuid
 from datetime import datetime
+
+# Dimensión del modelo de embeddings.
+# 384 = all-MiniLM-L6-v2 (sentence-transformers, local, gratuito)
+# Cambiar a 1536 si se migra a OpenAI text-embedding-3-small
+EMBEDDING_DIMENSION = 384
 
 
 class KItem(Base):
@@ -56,6 +67,18 @@ class KItem(Base):
         default=dict,
         comment="Metadata extensible adicional del k-item",
     )
+
+    # === NUEVO: Embedding vectorial para búsqueda semántica ===
+    embedding = Column(
+        Vector(EMBEDDING_DIMENSION),
+        nullable=True,
+        comment=(
+            "Embedding vectorial del k-item para búsqueda semántica. "
+            "Generado a partir de nombre + descripción + metadata contextual. "
+            f"Dimensión: {EMBEDDING_DIMENSION} (all-MiniLM-L6-v2)"
+        ),
+    )
+
     usuario_creador = Column(Text, nullable=False)
     usuario_ultima_actualizacion = Column(Text, nullable=False)
     fecha_creacion = Column(DateTime, nullable=False, default=datetime.now)

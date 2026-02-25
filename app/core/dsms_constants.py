@@ -42,6 +42,7 @@ REL_PERTENECE_A = "pertenece_a"          # FichaTecnica → MaterialComercial
 REL_SE_DERIVA_DE = "se_deriva_de"        # FichaTecnica → FichaTecnica (versionamiento)
 REL_ES_VARIANTE_DE = "es_variante_de"    # Material → Material
 REL_RELACIONADO_CON = "relacionado_con"  # Relación genérica
+REL_SEMANTICAMENTE_SIMILAR = "semanticamente_similar"  # NUEVO: Descubierta por embeddings
 
 # Futuros tipos de relación:
 # REL_CUMPLE_NORMA = "cumple_norma"          # Material/Ficha → Norma
@@ -54,15 +55,19 @@ RELACIONES_VALIDAS = {
     REL_SE_DERIVA_DE,
     REL_ES_VARIANTE_DE,
     REL_RELACIONADO_CON,
+    REL_SEMANTICAMENTE_SIMILAR,
 }
 
-# Tipos de acciones de auditoría
+# ========================
+# ACCIONES DE AUDITORÍA
+# ========================
 ACCION_CREACION = "CREACION"
 ACCION_CAMBIO_ESTADO = "CAMBIO_ESTADO"
 ACCION_MODIFICACION = "MODIFICACION"
 ACCION_RELACION_CREADA = "RELACION_CREADA"
 ACCION_RELACION_ELIMINADA = "RELACION_ELIMINADA"
 ACCION_NUEVA_VERSION = "NUEVA_VERSION"
+ACCION_EMBEDDING_GENERADO = "EMBEDDING_GENERADO"  # NUEVO: Generación/regeneración de embedding
 
 # Conjunto de acciones válidas
 ACCIONES_VALIDAS = {
@@ -72,4 +77,17 @@ ACCIONES_VALIDAS = {
     ACCION_RELACION_CREADA,
     ACCION_RELACION_ELIMINADA,
     ACCION_NUEVA_VERSION,
+    ACCION_EMBEDDING_GENERADO,
 }
+
+# ========================
+# CONFIGURACIÓN SEMÁNTICA
+# ========================
+# Umbrales recomendados para detección de duplicados por k-type
+UMBRALES_DUPLICADOS = {
+    KTYPE_MATERIAL_COMERCIAL: 0.85,
+    KTYPE_FICHA_TECNICA: 0.80,
+    # Valores por defecto para k-types futuros
+    "_default": 0.85,
+}
+

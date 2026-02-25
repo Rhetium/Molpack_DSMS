@@ -28,6 +28,8 @@ from app.services.kitem_service import KItemService
 from app.services.auditoria_service import AuditoriaService
 from app.core.utils import nombre_pais_a_iso
 
+from app.services.semantic_search_service import BusquedaSemanticaService
+
 from app.core.dsms_constants import (
     KTYPE_FICHA_TECNICA,
     REL_PERTENECE_A,
@@ -47,6 +49,7 @@ class FichaService:
         self.db_session = db_session
         self.kitem_service = KItemService(db_session)
         self.auditoria = AuditoriaService(db_session)
+        self.busqueda = BusquedaSemanticaService(db_session)
 
     # -------------------------
     # Validaciones de estado
@@ -290,6 +293,16 @@ class FichaService:
             )
         )
 
+        # --- Generar embedding para búsqueda semántica ---
+        await self.busqueda.asignar_embedding(
+            kitem_id=ficha.id_ficha,
+            campos_adicionales={
+                "tipo_producto": material.tipo_producto,   # ← del material, no de la ficha
+                "estado_ficha": ficha.estado_ficha,
+            },
+            usuario=ficha_data.usuario_creador,
+        )
+
         await self.db_session.commit()
         await self.db_session.refresh(ficha)
         return ficha
@@ -465,6 +478,310 @@ class FichaService:
                 "nueva_version": nueva_version,
                 "nuevo_codigo_ficha": codigo_ficha_local,
                 "version_origen": ficha_origen.codigo_version,
+            },
+        )
+
+        await self.db_session.commit()
+        await self.db_session.refresh(nueva_ficha)
+        return nueva_ficha
+    
+    # =========================================
+    # Campos editables por estado
+    # =========================================
+
+    SECCIONES_EDITABLES = {
+        "caracteristicas",
+        "caracteristicas_contenido",
+        "empaque_estiba",
+        "microbiologia",
+        "manejo_disposicion",
+    }
+
+    # -------------------------
+    # Modificación de fichas
+    # -------------------------
+
+    async def actualizar(
+        self,
+        id_ficha: UUID,
+        datos_actualizacion: dict,
+        usuario: str,
+    ) -> FichaTecnica:
+        """
+        Actualiza una ficha técnica según las reglas de negocio:
+
+        - Borrador/Preliminar: Edición libre de secciones JSONB
+          (caracteristicas, caracteristicas_contenido, empaque_estiba,
+          microbiologia, manejo_disposicion). Misma versión.
+        - Vigente: NO se edita directamente. Se crea nueva versión
+          en Borrador y la ficha vigente pasa a Obsoleto automáticamente.
+        - Obsoleto: No se puede modificar.
+
+        Args:
+            id_ficha: UUID de la ficha a modificar.
+            datos_actualizacion: Dict con las secciones JSONB a modificar.
+                Claves válidas: caracteristicas, caracteristicas_contenido,
+                empaque_estiba, microbiologia, manejo_disposicion.
+            usuario: Usuario que realiza la modificación.
+
+        Returns:
+            La ficha actualizada (o la nueva versión si era Vigente).
+        """
+        ficha = await self.obtener(id_ficha)
+
+        # --- Obsoleto: no se puede modificar ---
+        if ficha.estado_ficha == ESTADO_OBSOLETO:
+            raise HTTPException(
+                status_code=400,
+                detail="No se puede modificar una ficha en estado Obsoleto.",
+            )
+
+        # --- Vigente: crear nueva versión automáticamente ---
+        if ficha.estado_ficha == ESTADO_VIGENTE:
+            return await self._modificar_ficha_vigente(
+                ficha_vigente=ficha,
+                datos_actualizacion=datos_actualizacion,
+                usuario=usuario,
+            )
+
+        # --- Borrador / Preliminar: edición directa ---
+        return await self._modificar_ficha_editable(
+            ficha=ficha,
+            datos_actualizacion=datos_actualizacion,
+            usuario=usuario,
+        )
+
+    async def _modificar_ficha_editable(
+        self,
+        ficha: FichaTecnica,
+        datos_actualizacion: dict,
+        usuario: str,
+    ) -> FichaTecnica:
+        """
+        Modifica directamente las secciones JSONB de una ficha
+        en estado Borrador o Preliminar. Misma versión.
+        """
+        cambios = {}
+
+        for campo, valor in datos_actualizacion.items():
+            if campo not in self.SECCIONES_EDITABLES:
+                continue
+            if valor is None:
+                continue
+
+            valor_anterior = getattr(ficha, campo)
+            if valor_anterior != valor:
+                setattr(ficha, campo, valor)
+                cambios[campo] = {
+                    "anterior": valor_anterior,
+                    "nuevo": valor,
+                }
+
+        if not cambios:
+            return ficha  # Sin cambios reales
+
+        # Validar campos requeridos si se modificó caracteristicas_contenido
+        if "caracteristicas_contenido" in cambios:
+            material = await self._validar_material(ficha.id_material_corporativo)
+            if material.contenido and material.contenido.lower() == "huevos":
+                self._validar_caracteristicas_huevos(ficha.caracteristicas_contenido)
+            else:
+                self._validar_caracteristicas_otros(ficha.caracteristicas_contenido)
+
+        ficha.usuario_ultima_actualizacion = usuario
+        ficha.fecha_actualizacion = datetime.now()
+        self.db_session.add(ficha)
+
+        # Actualizar código de ficha (puede cambiar por estado)
+        ficha.codigo_ficha_local = self._generar_codigo_ficha(
+            codigo_material_local=ficha.codigo_material_local,
+            pais=ficha.pais,
+            estado_ficha=ficha.estado_ficha,
+            codigo_version=ficha.codigo_version,
+        )
+
+        # Sincronizar kitem base
+        kitem = await self.kitem_service.obtener_kitem(ficha.id_ficha)
+        kitem.usuario_ultima_actualizacion = usuario
+        kitem.fecha_actualizacion = datetime.now()
+        self.db_session.add(kitem)
+
+        # Auditoría de modificación
+        await self.auditoria.registrar(
+            kitem_id=ficha.id_ficha,
+            ktype=KTYPE_FICHA_TECNICA,
+            accion=ACCION_MODIFICACION,
+            usuario=usuario,
+            detalles={
+                "tipo_modificacion": "edicion_directa",
+                "estado_ficha": ficha.estado_ficha,
+                "version": ficha.codigo_version,
+                "secciones_modificadas": list(cambios.keys()),
+                "cambios": cambios,
+            },
+        )
+
+        await self.db_session.commit()
+        await self.db_session.refresh(ficha)
+        return ficha
+
+    async def _modificar_ficha_vigente(
+        self,
+        ficha_vigente: FichaTecnica,
+        datos_actualizacion: dict,
+        usuario: str,
+    ) -> FichaTecnica:
+        """
+        Modifica una ficha Vigente:
+        1. Crea nueva versión en Borrador (con los datos actualizados)
+        2. Pasa la ficha vigente a Obsoleto automáticamente
+        3. Crea relación 'se_deriva_de' en el grafo
+
+        Returns:
+            La nueva ficha (nueva versión en Borrador).
+        """
+        # PASO 1: Crear nueva versión con datos heredados
+        nueva_version = self._incrementar_version_simple(ficha_vigente.codigo_version)
+        now = datetime.now()
+        estado_inicial = ESTADO_BORRADOR
+
+        codigo_ficha_local = self._generar_codigo_ficha(
+            estado_ficha=estado_inicial,
+            codigo_material_local=ficha_vigente.codigo_material_local,
+            pais=ficha_vigente.pais,
+            codigo_version=nueva_version,
+        )
+
+        # Crear kitem base para la nueva versión
+        kitem = await self.kitem_service.crear_kitem(
+            KItemCreateSchema(
+                ktype=KTYPE_FICHA_TECNICA,
+                nombre=f"Ficha Tecnica - {ficha_vigente.codigo_material_local} ({ficha_vigente.pais}) v{nueva_version}",
+                descripcion=f"Nueva version ({nueva_version}) derivada de {ficha_vigente.codigo_ficha_local} por modificacion",
+                estado=estado_inicial,
+                metadata_extra={
+                    "codigo_ficha_local": codigo_ficha_local,
+                    "pais": ficha_vigente.pais,
+                    "version": nueva_version,
+                    "version_origen": ficha_vigente.codigo_version,
+                    "ficha_origen_id": str(ficha_vigente.id_ficha),
+                    "motivo": "modificacion_ficha_vigente",
+                },
+                usuario_creador=usuario,
+            )
+        )
+
+        # Heredar secciones de la ficha vigente y aplicar modificaciones
+        secciones = {
+            "caracteristicas": ficha_vigente.caracteristicas,
+            "caracteristicas_contenido": ficha_vigente.caracteristicas_contenido,
+            "empaque_estiba": ficha_vigente.empaque_estiba,
+            "microbiologia": ficha_vigente.microbiologia,
+            "manejo_disposicion": ficha_vigente.manejo_disposicion,
+        }
+
+        # Aplicar las modificaciones sobre las secciones heredadas
+        cambios_aplicados = {}
+        for campo, valor in datos_actualizacion.items():
+            if campo in self.SECCIONES_EDITABLES and valor is not None:
+                cambios_aplicados[campo] = {
+                    "anterior": secciones.get(campo),
+                    "nuevo": valor,
+                }
+                secciones[campo] = valor
+
+        # Validar campos requeridos si se modificó caracteristicas_contenido
+        if "caracteristicas_contenido" in cambios_aplicados:
+            material = await self._validar_material(ficha_vigente.id_material_corporativo)
+            if material.contenido and material.contenido.lower() == "huevos":
+                self._validar_caracteristicas_huevos(secciones["caracteristicas_contenido"])
+            else:
+                self._validar_caracteristicas_otros(secciones["caracteristicas_contenido"])
+
+        # Crear nueva ficha con secciones actualizadas
+        nueva_ficha = FichaTecnica(
+            id_ficha=kitem.id,
+            id_material_corporativo=ficha_vigente.id_material_corporativo,
+            codigo_ficha_local=codigo_ficha_local,
+            codigo_material_local=ficha_vigente.codigo_material_local,
+            codigo_version=nueva_version,
+            usuario_creador=usuario,
+            usuario_ultima_actualizacion=usuario,
+            estado_ficha=estado_inicial,
+            fecha_registro=now,
+            fecha_actualizacion=now,
+            pais=ficha_vigente.pais,
+            caracteristicas=secciones["caracteristicas"],
+            caracteristicas_contenido=secciones["caracteristicas_contenido"],
+            empaque_estiba=secciones["empaque_estiba"],
+            microbiologia=secciones["microbiologia"],
+            manejo_disposicion=secciones["manejo_disposicion"],
+        )
+        self.db_session.add(nueva_ficha)
+
+        # PASO 2: Relación "se_deriva_de" en el grafo
+        await self.kitem_service.crear_relacion(
+            KItemRelacionCreateSchema(
+                source_id=kitem.id,
+                target_id=ficha_vigente.id_ficha,
+                tipo_relacion=REL_SE_DERIVA_DE,
+                etiqueta=f"v{nueva_version} se deriva de v{ficha_vigente.codigo_version} (modificacion)",
+                usuario_creador=usuario,
+            )
+        )
+
+        # PASO 3: Relación "pertenece_a" con el material
+        await self.kitem_service.crear_relacion(
+            KItemRelacionCreateSchema(
+                source_id=kitem.id,
+                target_id=ficha_vigente.id_material_corporativo,
+                tipo_relacion=REL_PERTENECE_A,
+                etiqueta=f"Ficha {codigo_ficha_local} pertenece a material {ficha_vigente.codigo_material_local}",
+                usuario_creador=usuario,
+            )
+        )
+
+        # PASO 4: Pasar ficha vigente a Obsoleto automáticamente
+        estado_anterior = ficha_vigente.estado_ficha
+        ficha_vigente.estado_ficha = ESTADO_OBSOLETO
+        ficha_vigente.usuario_ultima_actualizacion = usuario
+        ficha_vigente.fecha_actualizacion = now
+        self.db_session.add(ficha_vigente)
+
+        # Sincronizar estado en kitem de la ficha obsoleta
+        await self.kitem_service.actualizar_estado_kitem(
+            kitem_id=ficha_vigente.id_ficha,
+            nuevo_estado=ESTADO_OBSOLETO,
+            usuario=usuario,
+        )
+
+        # Auditoría: obsolescencia de la ficha anterior
+        await self.auditoria.registrar(
+            kitem_id=ficha_vigente.id_ficha,
+            ktype=KTYPE_FICHA_TECNICA,
+            accion=ACCION_CAMBIO_ESTADO,
+            usuario=usuario,
+            estado_anterior=estado_anterior,
+            estado_nuevo=ESTADO_OBSOLETO,
+            detalles={
+                "motivo": "Reemplazada por nueva version",
+                "nueva_version_id": str(kitem.id),
+                "nueva_version": nueva_version,
+            },
+        )
+
+        # Auditoría: nueva versión con modificaciones
+        await self.auditoria.registrar(
+            kitem_id=kitem.id,
+            ktype=KTYPE_FICHA_TECNICA,
+            accion=ACCION_NUEVA_VERSION,
+            usuario=usuario,
+            detalles={
+                "tipo_modificacion": "modificacion_ficha_vigente",
+                "version_origen": ficha_vigente.codigo_version,
+                "nueva_version": nueva_version,
+                "secciones_modificadas": list(cambios_aplicados.keys()),
+                "cambios": cambios_aplicados,
             },
         )
 

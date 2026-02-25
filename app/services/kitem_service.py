@@ -176,7 +176,7 @@ class KItemService:
             target_id=data.target_id,
             tipo_relacion=data.tipo_relacion,
             etiqueta=data.etiqueta,
-            metadata=data.metadata,
+            metadata_relacion=data.metadata_relacion,
             usuario_creador=data.usuario_creador,
             fecha_creacion=datetime.now(),
         )

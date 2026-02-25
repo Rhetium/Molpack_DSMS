@@ -66,3 +66,11 @@ class FichaTecnicaWithMaterialSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+class FichaTecnicaUpdateSchema(BaseModel):
+    caracteristicas: dict | None = None
+    caracteristicas_contenido: dict | None = None
+    empaque_estiba: dict | None = None
+    microbiologia: dict | None = None
+    manejo_disposicion: dict | None = None
+    usuario_actualizacion: str

@@ -10,4 +10,8 @@ python-dotenv==1.0.1      # para leer variables de entorno (.env) luego
 pycountry==22.3.5          # para manejo de países e idiomas
 # para más adelante, cuando conectes IA:
 # scikit-learn==1.5.0
-# pyod==1.1.0
+# pyod==1.1.
+
+pgvector==0.3.6
+sentence-transformers==3.0.1
+numpy>=1.26.0

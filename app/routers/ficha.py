@@ -10,6 +10,7 @@ from app.schemas.ficha import (
     FichaTecnicaSchema,
     FichaTecnicaCreateSchema,
     FichaTecnicaWithMaterialSchema,
+    FichaTecnicaUpdateSchema,
 )
 
 from app.core.dsms_constants import (
@@ -97,6 +98,17 @@ async def crear_nueva_version(
     id_ficha: UUID,
     service: FichaService = Depends(get_ficha_service),
 ):
-    """Crea una nueva versión de la ficha, registrando la relación
-    'se_deriva_de' en el grafo de conocimiento del DSMS."""
     return await service.crear_nueva_version(id_ficha, usuario="sistema")
+
+@router.patch("/{id_ficha}", response_model=FichaTecnicaSchema)
+async def actualizar_ficha(
+    id_ficha: UUID,
+    datos: FichaTecnicaUpdateSchema,
+    service: FichaService = Depends(get_ficha_service),
+):
+    datos_dict = datos.model_dump(exclude={"usuario_actualizacion"}, exclude_none=True)
+    return await service.actualizar(
+        id_ficha=id_ficha,
+        datos_actualizacion=datos_dict,
+        usuario=datos.usuario_actualizacion,
+    )

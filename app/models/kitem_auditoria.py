@@ -40,7 +40,7 @@ class KItemAuditoria(Base):
         nullable=True,
         comment="Estado del k-item después de la acción (ej: 'Activo', 'Obsoleto'). NULL si no aplica.",
     )
-    detalles_cambio = Column(
+    detalles = Column(
         JSONB,
         nullable=True,
         default=dict,
@@ -51,7 +51,7 @@ class KItemAuditoria(Base):
         nullable=False,
         comment="Usuario que realizó la acción auditada",
     )
-    fecha_accion = Column(
+    fecha = Column(
         DateTime,
         nullable=False,
         default=datetime.now,
