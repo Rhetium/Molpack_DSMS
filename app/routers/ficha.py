@@ -1,17 +1,20 @@
 from typing import List
 from uuid import UUID
-
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_session
 from app.services.fichas_services import FichaService
 from app.schemas.ficha import (
+    AnomaliaResumen,
     FichaTecnicaSchema,
     FichaTecnicaCreateSchema,
     FichaTecnicaWithMaterialSchema,
     FichaTecnicaUpdateSchema,
+    CambioEstadoRequest,
 )
+
 
 from app.core.dsms_constants import (
     ESTADO_PRELIMINAR,
@@ -40,8 +43,19 @@ async def crear_ficha(
     ficha_data: FichaTecnicaCreateSchema,
     service: FichaService = Depends(get_ficha_service),
 ):
-    return await service.crear(ficha_data)
-
+    ficha = await service.crear(ficha_data)
+    resultado = FichaTecnicaSchema.model_validate(ficha)
+    if hasattr(ficha,'_anomalias') and ficha._anomalias:
+        resultado.anomalias = [
+            AnomaliaResumen(
+                tipo_anomalia=a.tipo_anomalia,
+                severidad=a.severidad,
+                campo_afectado=a.campo_afectado,
+                mensaje=a.mensaje,
+            )
+            for a in ficha._anomalias
+        ]
+    return resultado
 
 @router.get("/buscar", response_model=List[FichaTecnicaWithMaterialSchema])
 async def buscar_fichas(
@@ -107,8 +121,33 @@ async def actualizar_ficha(
     service: FichaService = Depends(get_ficha_service),
 ):
     datos_dict = datos.model_dump(exclude={"usuario_actualizacion"}, exclude_none=True)
-    return await service.actualizar(
+    ficha = await service.actualizar(
         id_ficha=id_ficha,
         datos_actualizacion=datos_dict,
         usuario=datos.usuario_actualizacion,
+    )
+    resultado = FichaTecnicaSchema.model_validate(ficha)
+    if hasattr(ficha, '_anomalias') and ficha._anomalias:
+        resultado.anomalias = [
+            AnomaliaResumen(
+                tipo_anomalia=a.tipo_anomalia,
+                severidad=a.severidad,
+                campo_afectado=a.campo_afectado,
+                mensaje=a.mensaje,
+            )
+            for a in ficha._anomalias
+        ]
+    return resultado
+
+
+@router.patch("/{id_ficha}/estado", response_model=FichaTecnicaSchema)
+async def cambiar_estado_ficha(
+    id_ficha: UUID,
+    request: CambioEstadoRequest,
+    service: FichaService = Depends(get_ficha_service),
+):
+    return await service.cambiar_estado(
+        id_ficha=id_ficha,
+        nuevo_estado=request.nuevo_estado,
+        usuario_actualizacion=request.usuario_actualizacion,
     )

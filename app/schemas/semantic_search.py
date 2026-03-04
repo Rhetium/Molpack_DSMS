@@ -49,6 +49,7 @@ class BusquedaSemanticaRequest(BaseModel):
         le=1.0,
         description="Similitud mínima para incluir en resultados (0.0 = sin filtro).",
     )
+    filtro_texto: str | None = None
 
 
 class DeteccionDuplicadosRequest(BaseModel):

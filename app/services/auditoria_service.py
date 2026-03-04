@@ -67,7 +67,8 @@ class AuditoriaService:
 
     async def obtener_actividad_reciente(
         self,
-        limite: int = 50,
+        limite: int = 25,
+        offset: int = 0,
         ktype: str | None = None,
         accion: str | None = None,
         usuario: str | None = None,
@@ -83,6 +84,6 @@ class AuditoriaService:
             conditions.append(KItemAuditoria.usuario == usuario)
         if conditions:
             query = query.where(and_(*conditions))
-        query = query.order_by(KItemAuditoria.fecha.desc()).limit(limite)
+        query = query.order_by(KItemAuditoria.fecha.desc()).offset(offset).limit(limite)
         result = await self.db_session.execute(query)
         return result.scalars().all()

@@ -29,6 +29,7 @@ def get_auditoria_service(
 @router.get("/actividad", response_model=List[AuditoriaResumenSchema])
 async def actividad_reciente(
     limite: int = 50,
+    offset: int = 0,
     ktype: str | None = None,
     accion: str | None = None,
     usuario: str | None = None,
@@ -40,6 +41,7 @@ async def actividad_reciente(
     """
     return await service.obtener_actividad_reciente(
         limite=limite,
+        offset=offset,
         ktype=ktype,
         accion=accion,
         usuario=usuario,

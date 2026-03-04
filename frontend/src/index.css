@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@theme {
+    --color-molpack-dark: #044926;
+    --color-molpack-light: #29b34b;
+    --color-molpack-hover: #037a3b;
+}

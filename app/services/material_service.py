@@ -22,6 +22,8 @@ from app.schemas.material import MaterialCreateSchema
 from app.schemas.kitem import KItemCreateSchema
 from app.services.kitem_service import KItemService
 from app.services.semantic_search_service import BusquedaSemanticaService
+from app.services.anomalia_service import AnomaliaService
+
 from app.core.dsms_constants import (
     KTYPE_MATERIAL_COMERCIAL,
     ACCION_MODIFICACION,
@@ -33,6 +35,7 @@ class MaterialService:
         self.db_session = db_session
         self.kitem_service = KItemService(db_session)
         self.busqueda = BusquedaSemanticaService(db_session)
+        self.anomalia_service = AnomaliaService(db_session)
 
     # =========================================
     # Campos adicionales para embedding
@@ -126,6 +129,20 @@ class MaterialService:
         # --- PASO 4: Commit atómico (kitem + material + embedding + auditoría) ---
         await self.db_session.commit()
         await self.db_session.refresh(material)
+
+        try:
+            resultado_anomalias = await self.anomalia_service.analizar_material(
+                id_material=material.id_material_corporativo,
+                usuario=material_data.usuario_creador,
+                contexto="creacion",
+            )
+            await self.db_session.commit()  # Commit de las anomalías detectadas
+            material._anomalias = resultado_anomalias.anomalias  # Para incluir en la respuesta
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Error en analisis de anomalías para material {material.id_material_corporativo}: {e}")
+            material._anomalias = []
+
         return material
 
     async def actualizar(
@@ -233,4 +250,18 @@ class MaterialService:
         # --- Commit atómico ---
         await self.db_session.commit()
         await self.db_session.refresh(material)
+
+        try:
+            resultado_anomalias = await self.anomalia_service.analizar_material(
+                id_material=material.id_material_corporativo,
+                usuario=usuario,
+                contexto="actualizacion",
+            )
+            await self.db_session.commit()  # Commit de las anomalías detectadas
+            material._anomalias = resultado_anomalias.anomalias  # Para incluir en la respuesta
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Error en analisis de anomalías para material {material.id_material_corporativo}: {e}")
+            material._anomalias = []
+
         return material

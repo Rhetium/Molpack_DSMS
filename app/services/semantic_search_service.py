@@ -125,38 +125,50 @@ class BusquedaSemanticaService:
         estado: str | None = None,
         limite: int = 10,
         umbral_similitud: float = 0.0,
+        filtro_texto: str | None = None,  # ← NUEVO PARÁMETRO
     ) -> list[dict]:
         """
-        Búsqueda semántica: encuentra k-items similares a un texto libre.
+        Búsqueda híbrida: semántica + textual.
 
-        Usa similitud coseno via pgvector (operador <=>).
-        La distancia coseno va de 0 (idénticos) a 2 (opuestos).
-        Similitud = 1 - distancia.
+        1. Busca por similitud coseno via pgvector (semántica)
+        2. Opcionalmente filtra por coincidencia textual en nombre/descripción (ILIKE)
 
         Args:
-            texto_consulta: Texto libre para buscar.
-            ktype: Filtrar por tipo de k-item (MaterialComercial, FichaTecnica, etc.)
+            texto_consulta: Texto libre para búsqueda semántica.
+            ktype: Filtrar por tipo de k-item.
             estado: Filtrar por estado del k-item.
             limite: Máximo de resultados.
-            umbral_similitud: Similitud mínima (0.0 a 1.0). Resultados con
-                              similitud menor se excluyen.
+            umbral_similitud: Similitud mínima (0.0 a 1.0).
+            filtro_texto: Texto para filtro exacto (ILIKE) sobre nombre y descripción.
+                        Si se proporciona, solo retorna k-items cuyo nombre O
+                        descripción contengan este texto (case-insensitive).
 
         Returns:
             Lista de dicts con kitem y similitud, ordenados por relevancia.
         """
+        from sqlalchemy import or_
+
         # Generar embedding del texto de consulta
         embedding_consulta = generar_embedding(texto_consulta)
 
-        # Construir query con pgvector cosine distance
-        # La distancia coseno en pgvector: kitem.embedding <=> query_vector
-        # Similitud = 1 - distancia
+        # Construir condiciones base
         conditions = [KItem.embedding.isnot(None)]
         if ktype:
             conditions.append(KItem.ktype == ktype)
         if estado:
             conditions.append(KItem.estado == estado)
 
-        # pgvector cosine distance operator: <=>
+        # Filtro textual (ILIKE = case-insensitive LIKE)
+        if filtro_texto:
+            patron = f"%{filtro_texto}%"
+            conditions.append(
+                or_(
+                    KItem.nombre.ilike(patron),
+                    KItem.descripcion.ilike(patron),
+                )
+            )
+
+        # pgvector cosine distance
         distancia = KItem.embedding.cosine_distance(embedding_consulta)
 
         query = (
@@ -183,10 +195,12 @@ class BusquedaSemanticaService:
                 })
 
         logger.info(
-            f"Búsqueda semántica: '{texto_consulta[:80]}' → "
-            f"{len(resultados)} resultados (ktype={ktype}, umbral={umbral_similitud})"
+            f"Búsqueda híbrida: '{texto_consulta[:80]}' "
+            f"(filtro_texto='{filtro_texto}') → "
+            f"{len(resultados)} resultados"
         )
         return resultados
+
 
     async def buscar_similares_a_kitem(
         self,

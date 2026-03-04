@@ -2,19 +2,21 @@ ESTADO_BORRADOR = "Borrador"
 ESTADO_PRELIMINAR = "Preliminar"
 ESTADO_VIGENTE = "Vigente"
 ESTADO_OBSOLETO = "Obsoleto"
+ESTADO_REVISION = "Revisión"
 
 TRANSACCIONES_PERMITIDAS = {
-    ESTADO_BORRADOR: {ESTADO_PRELIMINAR},
-    ESTADO_PRELIMINAR: {ESTADO_VIGENTE},
+    ESTADO_BORRADOR: {ESTADO_PRELIMINAR, ESTADO_OBSOLETO},
+    ESTADO_PRELIMINAR: {ESTADO_VIGENTE, ESTADO_OBSOLETO},
     ESTADO_VIGENTE: {ESTADO_OBSOLETO},
-    ESTADO_OBSOLETO: set(),
+    ESTADO_OBSOLETO: {ESTADO_REVISION},
+    ESTADO_REVISION: {ESTADO_OBSOLETO, ESTADO_PRELIMINAR},
 }
-
 ESTADO_ABREVIATURAS = {
     ESTADO_BORRADOR: "BOR",
     ESTADO_PRELIMINAR: "PRE",
     ESTADO_VIGENTE: "VIG",
     ESTADO_OBSOLETO: "OBS",
+    ESTADO_REVISION: "REV",
 }
 
 """
@@ -91,3 +93,37 @@ UMBRALES_DUPLICADOS = {
     "_default": 0.85,
 }
 
+# -------------------------
+# TIPOS DE CONTENIDO
+# -------------------------
+
+# Mapeo de tipo de contenido → campos obligatorios en caracteristicas_contenido
+CONTENIDO_HUEVOS = {"Huevo", "Huevos", "huevo", "huevos"}
+CONTENIDO_FRUTAS = {"Fruta", "Frutas", "fruta", "frutas"}
+
+CAMPOS_OBLIGATORIOS_HUEVOS = [
+    "profundidad_pilar_valor",
+    "profundidad_pilar_tolerancia",
+    "profundidad_pilar_unidad",
+    "diametro_alveolo_valor",
+    "diametro_alveolo_tolerancia",
+    "diametro_alveolo_unidad",
+]
+
+CAMPOS_OBLIGATORIOS_FRUTAS = [
+    "profundidad_cavidad_valor",
+    "profundidad_cavidad_tolerancia",
+    "profundidad_cavidad_unidad",
+    "diametro_cavidad_valor",
+    "diametro_cavidad_tolerancia",
+    "diametro_cavidad_unidad",
+]
+
+CAMPOS_OBLIGATORIOS_OTROS = [
+    "profundidad_pilar_valor",
+    "profundidad_pilar_tolerancia",
+    "profundidad_pilar_unidad",
+    "diametro_alveolo_valor",
+    "diametro_alveolo_tolerancia",
+    "diametro_alveolo_unidad",
+]

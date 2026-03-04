@@ -68,6 +68,7 @@ async def buscar_semanticamente(
         estado=request.estado,
         limite=request.limite,
         umbral_similitud=request.umbral_similitud,
+        filtro_texto=request.filtro_texto, # Para destacar términos coincidentes en frontend
     )
 
     # Mapear a schemas de respuesta
@@ -86,6 +87,8 @@ async def buscar_semanticamente(
         filtros["estado"] = request.estado
     if request.umbral_similitud > 0:
         filtros["umbral_similitud"] = request.umbral_similitud
+    if request.filtro_texto:
+        filtros["filtro_texto"] = request.filtro_texto
 
     return BusquedaSemanticaResponse(
         consulta=request.texto,

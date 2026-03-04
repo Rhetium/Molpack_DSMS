@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ficha import FichaTecnica
 from app.models.material import MaterialComercial
+from app.models.anomalia import AnomaliaRegistro
 from app.schemas.ficha import (
     FichaTecnicaCreateSchema,
     FichaTecnicaWithMaterialSchema,
@@ -29,8 +30,10 @@ from app.services.auditoria_service import AuditoriaService
 from app.core.utils import nombre_pais_a_iso
 
 from app.services.semantic_search_service import BusquedaSemanticaService
+from app.services.anomalia_service import AnomaliaService
 
 from app.core.dsms_constants import (
+    ESTADO_REVISION,
     KTYPE_FICHA_TECNICA,
     REL_PERTENECE_A,
     REL_SE_DERIVA_DE,
@@ -42,6 +45,12 @@ from app.core.dsms_constants import (
     TRANSACCIONES_PERMITIDAS,
     ACCION_CAMBIO_ESTADO,
     ACCION_NUEVA_VERSION,
+    ACCION_MODIFICACION,
+    CONTENIDO_HUEVOS,
+    CONTENIDO_FRUTAS,
+    CAMPOS_OBLIGATORIOS_HUEVOS,
+    CAMPOS_OBLIGATORIOS_FRUTAS,
+    CAMPOS_OBLIGATORIOS_OTROS,
 )
 
 class FichaService:
@@ -50,6 +59,7 @@ class FichaService:
         self.kitem_service = KItemService(db_session)
         self.auditoria = AuditoriaService(db_session)
         self.busqueda = BusquedaSemanticaService(db_session)
+        self.anomalias = AnomaliaService(db_session)
 
     # -------------------------
     # Validaciones de estado
@@ -119,44 +129,58 @@ class FichaService:
             )
         return material
 
-    def _validar_caracteristicas_huevos(self, caracteristicas_contenido: dict | None) -> None:
+    def _validar_contenido_por_tipo(
+        self,
+        contenido_material: str | None,
+        caracteristicas_contenido: dict | None,
+    ) -> None:
+        """
+        Valida que caracteristicas_contenido tenga los campos obligatorios
+        según el tipo de contenido del material asociado.
+
+        Reglas del estándar:
+        - Huevos: requiere profundidad_pilar + diametro_alveolo
+        - Frutas: requiere profundidad_cavidad + diametro_cavidad
+        - Otros:  requiere profundidad_pilar + diametro_alveolo
+
+        Args:
+            contenido_material: Valor del campo 'contenido' del MaterialComercial.
+            caracteristicas_contenido: Dict JSONB de la sección.
+        """
         if not caracteristicas_contenido:
             raise HTTPException(
-                status_code=400, detail="Las caracteristicas no pueden estar vacias"
-            )
-        requeridos = [
-            "profundidad_cavidad_valor",
-            "profundidad_cavidad_tolerancia",
-            "profundidad_cavidad_unidad",
-            "diametro_alveolo_valor",
-            "diametro_alveolo_tolerancia",
-            "diametro_alveolo_unidad",
-        ]
-        faltantes = [c for c in requeridos if c not in caracteristicas_contenido]
-        if faltantes:
-            raise HTTPException(
                 status_code=400,
-                detail="Faltan campos requeridos en caracteristicas: " + ", ".join(faltantes),
+                detail="Las caracteristicas_contenido no pueden estar vacías.",
             )
 
-    def _validar_caracteristicas_otros(self, caracteristicas_contenido: dict | None) -> None:
-        if not caracteristicas_contenido:
-            raise HTTPException(
-                status_code=400, detail="Las caracteristicas no pueden estar vacias"
-            )
-        requeridos = [
-            "profundidad_pilar_valor",
-            "profundidad_pilar_tolerancia",
-            "profundidad_pilar_unidad",
-            "diametro_alveolo_valor",
-            "diametro_alveolo_tolerancia",
-            "diametro_alveolo_unidad",
-        ]
-        faltantes = [c for c in requeridos if c not in caracteristicas_contenido]
+        contenido = (contenido_material or "").strip()
+
+        if contenido in CONTENIDO_HUEVOS:
+            campos_requeridos = CAMPOS_OBLIGATORIOS_HUEVOS
+            tipo_label = "Huevos"
+        elif contenido in CONTENIDO_FRUTAS:
+            campos_requeridos = CAMPOS_OBLIGATORIOS_FRUTAS
+            tipo_label = "Frutas"
+        else:
+            campos_requeridos = CAMPOS_OBLIGATORIOS_OTROS
+            tipo_label = "Otros"
+
+        # Obtener datos como dict (puede venir como Pydantic model o dict)
+        datos = (
+            caracteristicas_contenido.model_dump()
+            if hasattr(caracteristicas_contenido, "model_dump")
+            else caracteristicas_contenido
+        )
+
+        faltantes = [c for c in campos_requeridos if datos.get(c) is None]
+
         if faltantes:
             raise HTTPException(
                 status_code=400,
-                detail="Faltan campos requeridos en caracteristicas: " + ", ".join(faltantes),
+                detail=(
+                    f"Faltan campos requeridos en caracteristicas_contenido "
+                    f"para contenido tipo '{tipo_label}': {', '.join(faltantes)}"
+                ),
             )
 
     async def _validar_codigo_material_local_unico(
@@ -222,10 +246,16 @@ class FichaService:
         """
         material = await self._validar_material(ficha_data.id_material_corporativo)
 
-        if material.tipo_producto == "Huevos":
-            self._validar_caracteristicas_huevos(ficha_data.caracteristicas_contenido)
-        else:
-            self._validar_caracteristicas_otros(ficha_data.caracteristicas_contenido)
+        if material.estado_material == "Inactivo":
+            raise HTTPException(
+                status_code=400,
+                detail="No se pueden crear fichas técnicas para materiales inactivos.",
+            )
+
+        self._validar_contenido_por_tipo(
+            contenido_material=material.contenido,
+            caracteristicas_contenido=ficha_data.caracteristicas_contenido,
+        )
 
         now = datetime.now()
         version_inicial = "1.0"
@@ -274,11 +304,11 @@ class FichaService:
             fecha_registro=now,
             fecha_actualizacion=now,
             pais=pais_iso,
-            caracteristicas=ficha_data.caracteristicas,
-            caracteristicas_contenido=ficha_data.caracteristicas_contenido,
-            empaque_estiba=ficha_data.empaque_estiba,
-            microbiologia=ficha_data.microbiologia,
-            manejo_disposicion=ficha_data.manejo_disposicion,
+            caracteristicas=ficha_data.caracteristicas.model_dump() if ficha_data.caracteristicas else None,
+            caracteristicas_contenido=ficha_data.caracteristicas_contenido.model_dump() if ficha_data.caracteristicas_contenido else None,
+            empaque_estiba=ficha_data.empaque_estiba.model_dump() if ficha_data.empaque_estiba else None,
+            microbiologia=ficha_data.microbiologia.model_dump() if ficha_data.microbiologia else None,
+            manejo_disposicion=ficha_data.manejo_disposicion.model_dump() if ficha_data.manejo_disposicion else None,
         )
         self.db_session.add(ficha)
 
@@ -305,6 +335,21 @@ class FichaService:
 
         await self.db_session.commit()
         await self.db_session.refresh(ficha)
+
+        # --- Ejecutar análisis de anomalías ---
+        try: 
+            resultado_anomalias = await self.anomalias.analizar_ficha(
+            id_ficha=ficha.id_ficha,
+            usuario=ficha_data.usuario_creador,
+            contexto="creacion",
+            )
+            await self.db_session.commit()  # Commit para persistir anomalías detectadas
+            ficha._anomalias = resultado_anomalias.anomalias  # Agregar anomalías al objeto ficha para respuesta
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Error al analizar anomalías para ficha {ficha.id_ficha}: {e}")
+            ficha._anomalias = []  # Respuesta sin anomalías si falla el análisis
+
         return ficha
 
     async def buscar_ficha(
@@ -352,6 +397,24 @@ class FichaService:
         elif nuevo_estado == ESTADO_VIGENTE:
             self._validar_para_vigente(ficha)
             await self._validar_unica_vigente_por_material_pais(ficha)
+
+        # Validar que no haya anomalias pendientes
+        result_anomalias = await self.db_session.execute(
+            select(AnomaliaRegistro).where(
+                and_(AnomaliaRegistro.kitem_id == id_ficha,
+                     AnomaliaRegistro.estado == "pendiente")
+            )
+        )
+
+        anomalias_pendientes = result_anomalias.scalars().all()
+        if anomalias_pendientes:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"No se puede cambiar el estado: hay {len(anomalias_pendientes)} "
+                    f"anomalía(s) pendiente(s) por resolver. Resuélvelas antes de continuar."
+                ),
+            )
 
         ficha.estado_ficha = nuevo_estado
         ficha.usuario_ultima_actualizacion = usuario_actualizacion
@@ -537,7 +600,7 @@ class FichaService:
             )
 
         # --- Vigente: crear nueva versión automáticamente ---
-        if ficha.estado_ficha == ESTADO_VIGENTE:
+        if ficha.estado_ficha in (ESTADO_VIGENTE, ESTADO_REVISION):
             return await self._modificar_ficha_vigente(
                 ficha_vigente=ficha,
                 datos_actualizacion=datos_actualizacion,
@@ -583,10 +646,10 @@ class FichaService:
         # Validar campos requeridos si se modificó caracteristicas_contenido
         if "caracteristicas_contenido" in cambios:
             material = await self._validar_material(ficha.id_material_corporativo)
-            if material.contenido and material.contenido.lower() == "huevos":
-                self._validar_caracteristicas_huevos(ficha.caracteristicas_contenido)
-            else:
-                self._validar_caracteristicas_otros(ficha.caracteristicas_contenido)
+            self._validar_contenido_por_tipo(
+                contenido_material=material.contenido,
+                caracteristicas_contenido=ficha.caracteristicas_contenido,
+            )
 
         ficha.usuario_ultima_actualizacion = usuario
         ficha.fecha_actualizacion = datetime.now()
@@ -623,6 +686,21 @@ class FichaService:
 
         await self.db_session.commit()
         await self.db_session.refresh(ficha)
+
+        #--- Analisis automatico de anomalias ---
+        try:
+            resultado_anomalias = await self.anomalias.analizar_ficha(
+                id_ficha=ficha.id_ficha,
+                usuario=usuario,
+                contexto="actualizacion",
+            )
+            await self.db_session.commit()  # Commit para persistir anomalías detectadas
+            ficha._anomalias = resultado_anomalias.anomalias  # Agregar anomalías al objeto ficha para respuesta
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Error al analizar anomalías para ficha {ficha.id_ficha}: {e}")
+            ficha._anomalias = []  # Respuesta sin anomalías si falla el análisis
+
         return ficha
 
     async def _modificar_ficha_vigente(
@@ -643,7 +721,7 @@ class FichaService:
         # PASO 1: Crear nueva versión con datos heredados
         nueva_version = self._incrementar_version_simple(ficha_vigente.codigo_version)
         now = datetime.now()
-        estado_inicial = ESTADO_BORRADOR
+        estado_inicial = ESTADO_PRELIMINAR
 
         codigo_ficha_local = self._generar_codigo_ficha(
             estado_ficha=estado_inicial,
@@ -693,10 +771,10 @@ class FichaService:
         # Validar campos requeridos si se modificó caracteristicas_contenido
         if "caracteristicas_contenido" in cambios_aplicados:
             material = await self._validar_material(ficha_vigente.id_material_corporativo)
-            if material.contenido and material.contenido.lower() == "huevos":
-                self._validar_caracteristicas_huevos(secciones["caracteristicas_contenido"])
-            else:
-                self._validar_caracteristicas_otros(secciones["caracteristicas_contenido"])
+            self._validar_contenido_por_tipo(
+                contenido_material=material.contenido,
+                caracteristicas_contenido=secciones["caracteristicas_contenido"],
+            )
 
         # Crear nueva ficha con secciones actualizadas
         nueva_ficha = FichaTecnica(
@@ -787,4 +865,18 @@ class FichaService:
 
         await self.db_session.commit()
         await self.db_session.refresh(nueva_ficha)
+
+        try:
+            resultado_anomalias = await self.anomalias.analizar_ficha(
+                id_ficha=nueva_ficha.id_ficha,
+                usuario=usuario,
+                contexto="actualizacion_vigente",
+            )
+            await self.db_session.commit()  # Commit para persistir anomalías detectadas
+            nueva_ficha._anomalias = resultado_anomalias.anomalias  # Agregar anomalías al objeto ficha para respuesta
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Error al analizar anomalías para ficha {nueva_ficha.id_ficha}: {e}")
+            nueva_ficha._anomalias = []  # Respuesta sin anomalías si falla el análisis
+
         return nueva_ficha
