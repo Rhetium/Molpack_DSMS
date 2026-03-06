@@ -3,8 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Save, AlertTriangle } from 'lucide-react';
 import api from '../../../lib/api';
 
-const CATEGORIAS = ['Estuches', 'Separador', 'Bandejas', 'Tapas', 'Cajas', 'Otros'];
-const CONTENIDOS = ['Huevos', 'Frutas', 'Otros'];
+const CATEGORIAS = ['Estuche', 'Tapa', 'Separador', 'Bandeja', 'Porta vasos', 'Otro'];
+const CONTENIDOS = ['Huevos', 'Frutas', 'Potes de pintura', 'Vasos', 'Industrial', 'Otro'];
 const MATERIALES_BASE = ['Pulpa Moldeada', 'Cartón', 'Plástico', 'EPS', 'Otros'];
 const TIPOS_PRODUCTO = ['Producto Terminado', 'Materia Prima', 'Insumo', 'Empaque'];
 
@@ -22,7 +22,6 @@ export default function MaterialEditarPage() {
     categoria: '',
     material_base: '',
     capacidad_nominal: '',
-    color_base: '',
     tipo_producto: '',
     estado_material: '',
   });
@@ -38,7 +37,6 @@ export default function MaterialEditarPage() {
           categoria: m.categoria || '',
           material_base: m.material_base || '',
           capacidad_nominal: m.capacidad_nominal || '',
-          color_base: m.color_base || '',
           tipo_producto: m.tipo_producto || '',
           estado_material: m.estado_material || '',
         });
@@ -162,11 +160,6 @@ export default function MaterialEditarPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Capacidad Nominal</label>
             <input type="text" name="capacidad_nominal" value={form.capacidad_nominal} onChange={handleChange}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Color Base</label>
-            <input type="text" name="color_base" value={form.color_base} onChange={handleChange}
               className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>

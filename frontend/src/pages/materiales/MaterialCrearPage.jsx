@@ -4,11 +4,11 @@ import { ArrowLeft, Save, AlertTriangle } from 'lucide-react';
 import api from '../../../lib/api';
 
 const CATEGORIAS = [
-  'Estuches', 'Separador', 'Bandejas', 'Tapas', 'Cajas', 'Otros',
+  'Estuche', 'Tapa', 'Separador', 'Bandeja', 'Porta vasos', 'Otro',
 ];
 
 const CONTENIDOS = [
-  'Huevos', 'Frutas', 'Otros',
+  'Huevos', 'Frutas', 'Potes de pintura', 'Vasos', 'Industrial', 'Otro',
 ];
 
 const MATERIALES_BASE = [
@@ -31,7 +31,6 @@ export default function MaterialCrearPage() {
     categoria: '',
     material_base: '',
     capacidad_nominal: '',
-    color_base: '',
     tipo_producto: '',
     estado_material: 'Activo',
     usuario_creador: 'marco.agrusa',
@@ -195,30 +194,17 @@ export default function MaterialCrearPage() {
           </div>
         </div>
 
-        {/* Capacidad + Color */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Capacidad Nominal</label>
-            <input
-              type="text"
-              name="capacidad_nominal"
-              value={form.capacidad_nominal}
-              onChange={handleChange}
-              placeholder="Ej: 12 unidades, 1x30"
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Color Base</label>
-            <input
-              type="text"
-              name="color_base"
-              value={form.color_base}
-              onChange={handleChange}
-              placeholder="Ej: Natural, Blanco, Verde"
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+        {/* Capacidad Nominal */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Capacidad Nominal</label>
+          <input
+            type="text"
+            name="capacidad_nominal"
+            value={form.capacidad_nominal}
+            onChange={handleChange}
+            placeholder="Ej: 12 unidades, 1x30"
+            className="w-full max-w-xs px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
 
         {/* Botón */}

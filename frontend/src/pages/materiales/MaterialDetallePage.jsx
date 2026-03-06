@@ -177,7 +177,6 @@ function TabInfo({ material }) {
     { label: 'Contenido', valor: material.contenido },
     { label: 'Material Base', valor: material.material_base },
     { label: 'Capacidad Nominal', valor: material.capacidad_nominal },
-    { label: 'Color Base', valor: material.color_base },
     { label: 'Tipo de Producto', valor: material.tipo_producto },
     { label: 'Estado', valor: material.estado_material },
     { label: 'Fecha Creación', valor: material.fecha_creacion ? new Date(material.fecha_creacion).toLocaleString('es') : null },

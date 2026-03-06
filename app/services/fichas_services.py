@@ -46,11 +46,6 @@ from app.core.dsms_constants import (
     ACCION_CAMBIO_ESTADO,
     ACCION_NUEVA_VERSION,
     ACCION_MODIFICACION,
-    CONTENIDO_HUEVOS,
-    CONTENIDO_FRUTAS,
-    CAMPOS_OBLIGATORIOS_HUEVOS,
-    CAMPOS_OBLIGATORIOS_FRUTAS,
-    CAMPOS_OBLIGATORIOS_OTROS,
 )
 
 class FichaService:
@@ -78,11 +73,6 @@ class FichaService:
             raise HTTPException(
                 status_code=400,
                 detail="No se pueden aprobar fichas sin caracteristicas definidas.",
-            )
-        if not ficha.caracteristicas_contenido:
-            raise HTTPException(
-                status_code=400,
-                detail="No se pueden aprobar fichas sin caracteristicas de contenido definidas.",
             )
 
     def _validar_para_vigente(self, ficha: FichaTecnica) -> None:
@@ -135,54 +125,41 @@ class FichaService:
         caracteristicas_contenido: dict | None,
     ) -> None:
         """
-        Valida que caracteristicas_contenido tenga los campos obligatorios
-        según el tipo de contenido del material asociado.
+        Valida las caracteristicas_contenido.
 
-        Reglas del estándar:
-        - Huevos: requiere profundidad_pilar + diametro_alveolo
-        - Frutas: requiere profundidad_cavidad + diametro_cavidad
-        - Otros:  requiere profundidad_pilar + diametro_alveolo
+        Regla actualizada: TODOS los campos de contenido son opcionales.
+        La sección puede estar vacía o tener cualquier combinación de campos.
 
-        Args:
-            contenido_material: Valor del campo 'contenido' del MaterialComercial.
-            caracteristicas_contenido: Dict JSONB de la sección.
+        - Un separador de huevos puede no tener profundidad de pilar
+        - Una bandeja de potes no necesita diámetro de cavidad
+        - Un porta vasos puede no tener ningún campo de contenido
+
+        Solo se valida que si la sección existe, tenga al menos un campo
+        con valor (para evitar guardar secciones vacías inútilmente).
         """
         if not caracteristicas_contenido:
-            raise HTTPException(
-                status_code=400,
-                detail="Las caracteristicas_contenido no pueden estar vacías.",
-            )
+            # Sección vacía es válido — no todos los productos tienen contenido
+            return
 
-        contenido = (contenido_material or "").strip()
-
-        if contenido in CONTENIDO_HUEVOS:
-            campos_requeridos = CAMPOS_OBLIGATORIOS_HUEVOS
-            tipo_label = "Huevos"
-        elif contenido in CONTENIDO_FRUTAS:
-            campos_requeridos = CAMPOS_OBLIGATORIOS_FRUTAS
-            tipo_label = "Frutas"
-        else:
-            campos_requeridos = CAMPOS_OBLIGATORIOS_OTROS
-            tipo_label = "Otros"
-
-        # Obtener datos como dict (puede venir como Pydantic model o dict)
+        # Obtener datos como dict
         datos = (
             caracteristicas_contenido.model_dump()
             if hasattr(caracteristicas_contenido, "model_dump")
             else caracteristicas_contenido
         )
 
-        faltantes = [c for c in campos_requeridos if datos.get(c) is None]
+        # Verificar que al menos un campo tiene valor (evitar dict vacío o todo nulls)
+        tiene_algun_valor = any(
+            v is not None
+            for k, v in datos.items()
+            if k.endswith("_valor")
+        )
 
-        if faltantes:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Faltan campos requeridos en caracteristicas_contenido "
-                    f"para contenido tipo '{tipo_label}': {', '.join(faltantes)}"
-                ),
-            )
-
+        if not tiene_algun_valor:
+            # Si mandaron la sección pero todo vacío, simplemente ignorar
+            # No lanzar error — el frontend puede mandar la sección vacía
+            return
+        
     async def _validar_codigo_material_local_unico(
         self, id_material: UUID, pais: str, codigo_material_local: str,
     ) -> None:
@@ -880,3 +857,49 @@ class FichaService:
             nueva_ficha._anomalias = []  # Respuesta sin anomalías si falla el análisis
 
         return nueva_ficha
+    
+    async def calcular_rangos_tipicos(self, id_material: UUID) -> dict:
+        """Calcula rangos típicos de las fichas de un material."""
+        query = select(FichaTecnica).where(
+            and_(
+                FichaTecnica.id_material_corporativo == id_material,
+                FichaTecnica.estado_ficha.in_([ESTADO_VIGENTE, ESTADO_PRELIMINAR]),
+            )
+        )
+        result = await self.db_session.execute(query)
+        fichas = result.scalars().all()
+
+        if len(fichas) < 2:
+            return {"fuente": "sin_datos", "total_fichas": len(fichas), "rangos": {}}
+
+        rangos = {}
+        campos_numericos = [
+            "dimensiones_largo_valor", "dimensiones_ancho_valor",
+            "dimensiones_alto_valor", "peso_valor", "ruptura_valor",
+            "profundidad_pilar_valor", "diametro_alveolo_valor",
+            "profundidad_cavidad_valor", "diametro_cavidad_valor",
+        ]
+
+        for campo in campos_numericos:
+            valores = []
+            for ficha in fichas:
+                seccion = "caracteristicas" if "dimensiones" in campo or campo in (
+                    "peso_valor", "ruptura_valor"
+                ) else "caracteristicas_contenido"
+                datos = getattr(ficha, seccion)
+                if datos and campo in datos and datos[campo] is not None:
+                    valores.append(float(datos[campo]))
+
+            if len(valores) >= 2:
+                rangos[campo] = {
+                    "min": round(min(valores), 2),
+                    "max": round(max(valores), 2),
+                    "promedio": round(sum(valores) / len(valores), 2),
+                    "muestras": len(valores),
+                }
+
+        return {
+            "fuente": "calculado",
+            "total_fichas": len(fichas),
+            "rangos": rangos,
+        }

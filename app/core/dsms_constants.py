@@ -98,32 +98,37 @@ UMBRALES_DUPLICADOS = {
 # -------------------------
 
 # Mapeo de tipo de contenido → campos obligatorios en caracteristicas_contenido
-CONTENIDO_HUEVOS = {"Huevo", "Huevos", "huevo", "huevos"}
-CONTENIDO_FRUTAS = {"Fruta", "Frutas", "fruta", "frutas"}
-
-CAMPOS_OBLIGATORIOS_HUEVOS = [
+# Campos de contenido disponibles (todos opcionales)
+CAMPOS_CONTENIDO = {
     "profundidad_pilar_valor",
     "profundidad_pilar_tolerancia",
     "profundidad_pilar_unidad",
     "diametro_alveolo_valor",
     "diametro_alveolo_tolerancia",
     "diametro_alveolo_unidad",
-]
-
-CAMPOS_OBLIGATORIOS_FRUTAS = [
     "profundidad_cavidad_valor",
     "profundidad_cavidad_tolerancia",
     "profundidad_cavidad_unidad",
     "diametro_cavidad_valor",
     "diametro_cavidad_tolerancia",
     "diametro_cavidad_unidad",
-]
+}
+# Categorías de producto
+CATEGORIAS_PRODUCTO = {
+    "Estuche",
+    "Tapa",
+    "Separador",
+    "Bandeja",
+    "Porta vasos",
+    "Otro",
+}
 
-CAMPOS_OBLIGATORIOS_OTROS = [
-    "profundidad_pilar_valor",
-    "profundidad_pilar_tolerancia",
-    "profundidad_pilar_unidad",
-    "diametro_alveolo_valor",
-    "diametro_alveolo_tolerancia",
-    "diametro_alveolo_unidad",
-]
+# Tipos de contenido
+TIPOS_CONTENIDO = {
+    "Huevos",
+    "Frutas",
+    "Potes de pintura",
+    "Vasos",
+    "Industrial",
+    "Otro",
+}

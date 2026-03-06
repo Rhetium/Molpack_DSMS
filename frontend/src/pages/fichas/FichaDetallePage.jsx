@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, FileText, AlertTriangle, Package,
   Ruler, Egg, BoxSelect, Bug, ShieldCheck, ChevronRight,
+  Download, FileSpreadsheet,
 } from 'lucide-react';
 import api from '../../../lib/api';
 
@@ -160,7 +161,7 @@ export default function FichaDetallePage() {
         </div>
 
         {/* Info rápida */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
           <div>
             <p className="text-xs text-gray-500">Material</p>
             <Link
@@ -173,6 +174,10 @@ export default function FichaDetallePage() {
           <div>
             <p className="text-xs text-gray-500">País</p>
             <p className="text-sm font-medium text-gray-900">{ficha.pais}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Color</p>
+            <p className="text-sm font-medium text-gray-900">{ficha.caracteristicas?.color || '—'}</p>
           </div>
           <div>
             <p className="text-xs text-gray-500">Creador</p>
@@ -237,6 +242,38 @@ export default function FichaDetallePage() {
             >
               Cancelar Revisión
             </button>
+          )}
+
+          {/* Exportación — solo Preliminar y Vigente */}
+          {(estadoActual === 'Preliminar' || estadoActual === 'Vigente') && (
+            <>
+              <button
+                onClick={() => {
+                  const url = `/api/export/ficha/${id}/pdf`;
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.download = `ficha_${ficha.codigo_ficha_local || id}.pdf`;
+                  link.click();
+                }}
+                className="inline-flex items-center gap-1 px-4 py-2 bg-[#044926] text-white rounded-lg text-sm font-medium hover:bg-[#29b34b] transition-colors"
+              >
+                <Download size={14} />
+                Exportar PDF
+              </button>
+              <button
+                onClick={() => {
+                  const url = `/api/export/fichas/excel`;
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.download = 'fichas_tecnicas.xlsx';
+                  link.click();
+                }}
+                className="inline-flex items-center gap-1 px-4 py-2 border border-[#044926] text-[#044926] rounded-lg text-sm font-medium hover:bg-[#044926]/5 transition-colors"
+              >
+                <FileSpreadsheet size={14} />
+                Exportar Excel
+              </button>
+            </>
           )}
         </div>
       </div>

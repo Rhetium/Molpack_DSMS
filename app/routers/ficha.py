@@ -151,3 +151,15 @@ async def cambiar_estado_ficha(
         nuevo_estado=request.nuevo_estado,
         usuario_actualizacion=request.usuario_actualizacion,
     )
+
+@router.get("/{id_material}/rangos-tipicos")
+async def obtener_rangos_tipicos(
+    id_material: UUID,
+    service: FichaService = Depends(get_ficha_service),
+):
+    """
+    Calcula rangos típicos de características basándose en fichas
+    existentes del mismo material. Retorna min, max, promedio
+    y cantidad de fichas usadas para el cálculo.
+    """
+    return await service.calcular_rangos_tipicos(id_material)

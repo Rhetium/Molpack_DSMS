@@ -31,6 +31,38 @@ export default function AuditoriaPage() {
   const [pagina, setPagina] = useState(0);
   const [hayMas, setHayMas] = useState(false);
   const [detalleEvento, setDetalleEvento] = useState(null);
+  const [nombresMap, setNombresMap] = useState({});
+
+  // Cargar mapeo de IDs a nombres
+  useEffect(() => {
+    async function cargarNombres() {
+      try {
+        const [matRes, fichaRes] = await Promise.allSettled([
+          api.get('/material'),
+          api.get('/ficha'),
+        ]);
+        const map = {};
+        if (matRes.status === 'fulfilled') {
+          matRes.value.data.forEach((m) => {
+            map[m.id_material_corporativo] = m.nombre_corporativo;
+          });
+        }
+        if (fichaRes.status === 'fulfilled') {
+          fichaRes.value.data.forEach((f) => {
+            map[f.id_ficha] = f.codigo_ficha_local || f.codigo_material_local || f.id_ficha;
+          });
+        }
+        setNombresMap(map);
+      } catch (e) {
+        console.error('Error cargando nombres:', e);
+      }
+    }
+    cargarNombres();
+  }, []);
+
+  function getNombre(kitemId) {
+    return nombresMap[kitemId] || kitemId;
+  }
 
   async function cargar() {
     setCargando(true);
@@ -149,7 +181,7 @@ export default function AuditoriaPage() {
                     )}
                   </div>
                   <p className="text-xs text-gray-400 truncate">
-                    ID: {evento.kitem_id}
+                    {getNombre(evento.kitem_id)}
                   </p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
@@ -202,14 +234,14 @@ export default function AuditoriaPage() {
 
       {/* Modal de detalle */}
       {detalleEvento && (
-        <ModalDetalle evento={detalleEvento} onCerrar={() => setDetalleEvento(null)} />
+        <ModalDetalle evento={detalleEvento} onCerrar={() => setDetalleEvento(null)} getNombre={getNombre} />
       )}
     </div>
   );
 }
 
 /* ========== Modal de Detalle ========== */
-function ModalDetalle({ evento, onCerrar }) {
+function ModalDetalle({ evento, onCerrar, getNombre }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Overlay */}
@@ -234,7 +266,8 @@ function ModalDetalle({ evento, onCerrar }) {
           <FilaDetalle label="Usuario" valor={evento.usuario} />
           <FilaDetalle label="Acción" valor={formatearAccion(evento.accion)} />
           <FilaDetalle label="Tipo" valor={evento.ktype} />
-          <FilaDetalle label="K-Item ID" valor={evento.kitem_id} />
+          <FilaDetalle label="K-Item" valor={getNombre(evento.kitem_id)} />
+          <FilaDetalle label="ID" valor={evento.kitem_id} />
           <FilaDetalle label="Fecha" valor={new Date(evento.fecha).toLocaleString('es')} />
 
           {evento.estado_anterior && (
