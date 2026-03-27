@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
-
-import { useAuth } from '../../../lib/auth.jsx';
+import api from '../../../lib/api';
+import { useAuth } from '../../../lib/auth';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -24,31 +24,40 @@ export default function LoginPage() {
 
     setCargando(true);
 
-    // Simulación de autenticación
-    // En producción esto se conecta a LDAP/AD vía API
-    await new Promise((r) => setTimeout(r, 800));
-
-    console.log('usuario:', JSON.stringify(usuario), 'length:', usuario.length);
-    console.log('password:', JSON.stringify(password), 'length:', password.length);
-
-    if (usuario === 'marco.agrusa' && password === 'molpack2025') {
-      login({
-        usuario: 'marco.agrusa',
-        nombre: 'Marco Agrusa',
-        rol: 'Administrador',
-        iniciales: 'MA',
+    try {
+      const res = await api.post('/auth/login', {
+        usuario: usuario,
+        password: password,
       });
-      navigate('/');
-    } else if (usuario === 'demo' && password === 'demo') {
-      login({
-        usuario: 'demo',
-        nombre: 'Usuario Demo',
-        rol: 'Consultor',
-        iniciales: 'UD',
-      });
-      navigate('/');
-    } else {
-      setError('Credenciales inválidas. Verifica tu usuario y contraseña.');
+
+      const data = res.data;
+
+      if (data.exito) {
+        login({
+          usuario: data.usuario,
+          nombre: data.nombre,
+          rol: data.rol,
+          iniciales: data.iniciales,
+          email: data.email,
+          metodo: data.metodo,
+        }, data.token);
+        navigate('/');
+      } else {
+        const intentos = data.intentos_restantes;
+        const msg = data.mensaje || 'Credenciales inválidas.';
+        setError(intentos !== undefined && intentos <= 3
+          ? `${msg} (${intentos} intentos restantes)`
+          : msg
+        );
+      }
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 429) {
+        setError(err.response.data.detail || 'Demasiados intentos. Espera unos minutos.');
+      } else {
+        const msg = err.response?.data?.detail || err.response?.data?.mensaje || 'Error de conexión con el servidor.';
+        setError(typeof msg === 'object' ? JSON.stringify(msg) : msg);
+      }
     }
 
     setCargando(false);
@@ -69,7 +78,7 @@ export default function LoginPage() {
         {/* Contenido branding */}
         <div className="relative z-10 text-center px-16">
           <img
-            src="../../public/LOGO WHITE VERTICAL.png"
+            src="/LOGO WHITE VERTICAL.png"
             alt="Molpack"
             className="h-48 mx-auto mb-10 drop-shadow-lg"
           />
@@ -94,7 +103,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Logo móvil */}
           <div className="lg:hidden mb-10 text-center">
-            <img src="../../public/LOGO MONO MOLPACK.png" alt="Molpack" className="h-12 mx-auto mb-4" />
+            <img src="/logo-molpack.png" alt="Molpack" className="h-12 mx-auto mb-4" />
           </div>
 
           {/* Header */}
@@ -175,6 +184,10 @@ export default function LoginPage() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Admin:</span>
                 <code className="text-xs bg-gray-50 px-2 py-0.5 rounded text-gray-700">marco.agrusa / molpack2025</code>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Admin:</span>
+                <code className="text-xs bg-gray-50 px-2 py-0.5 rounded text-gray-700">admin / admin</code>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Demo:</span>

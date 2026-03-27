@@ -15,7 +15,6 @@ from app.schemas.ficha import (
     CambioEstadoRequest,
 )
 
-
 from app.core.dsms_constants import (
     ESTADO_PRELIMINAR,
     ESTADO_VIGENTE,

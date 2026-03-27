@@ -8,6 +8,22 @@ const COLORES_KTYPE = {
   FichaTecnica: { bg: '#29b34b', text: '#ffffff' },
 };
 
+const COLORES_ESTADO_FICHA = {
+  Vigente: '#29b34b',
+  Preliminar: '#f59e0b',
+  Obsoleto: '#ef4444',
+  Borrador: '#9ca3af',
+  'Revisión': '#f97316',
+};
+
+function getColorNodo(nodo) {
+  if (nodo.ktype === 'MaterialComercial') {
+    return COLORES_KTYPE.MaterialComercial;
+  }
+  const bg = COLORES_ESTADO_FICHA[nodo.estado] || '#29b34b';
+  return { bg, text: '#ffffff' };
+}
+
 const COLORES_RELACION = {
   pertenece_a: '#94a3b8',
   se_deriva_de: '#f59e0b',
@@ -302,7 +318,7 @@ export default function GrafoPage() {
       const matchBusqueda = !busqueda || n.nombre.toLowerCase().includes(busquedaLower);
       const esSeleccionado = nodoSeleccionado?.id === n.id;
       const esMaterial = n.ktype === 'MaterialComercial';
-      const colores = COLORES_KTYPE[n.ktype];
+      const colores = getColorNodo(n);
       const r = n.radio / (zoom > 1 ? 1 : 1);
 
       ctx.globalAlpha = matchBusqueda ? 1 : 0.15;
@@ -502,15 +518,25 @@ export default function GrafoPage() {
             Haz click en un material para expandir sus fichas. Arrastra los nodos para reorganizar.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-500">
+        <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-full bg-[#044926]" /> Materiales ({materiales.length})
           </span>
+          <span className="text-gray-300">|</span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-[#29b34b]" /> Fichas ({fichas.length})
+            <span className="w-3 h-3 rounded-full bg-[#29b34b]" /> Vigente
           </span>
-          <span>·</span>
-          <span>{enlaces.length} relaciones</span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-full bg-[#f59e0b]" /> Preliminar
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-full bg-[#ef4444]" /> Obsoleto
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-full bg-[#9ca3af]" /> Borrador
+          </span>
+          <span className="text-gray-300">|</span>
+          <span>{fichas.length} fichas · {enlaces.length} relaciones</span>
         </div>
       </div>
 
@@ -601,7 +627,7 @@ export default function GrafoPage() {
           <div className="w-72 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden shrink-0">
             <div
               className="flex items-center justify-between px-4 py-3 border-b"
-              style={{ backgroundColor: COLORES_KTYPE[nodoSeleccionado.ktype].bg + '15' }}
+              style={{ backgroundColor: getColorNodo(nodoSeleccionado).bg + '15' }}
             >
               <div className="flex items-center gap-2">
                 {nodoSeleccionado.ktype === 'MaterialComercial' ? (

@@ -3,9 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, FileText, AlertTriangle, Package,
   Ruler, Egg, BoxSelect, Bug, ShieldCheck, ChevronRight,
-  Download, FileSpreadsheet,
+  Download, FileSpreadsheet, Image,
 } from 'lucide-react';
 import api from '../../../lib/api';
+import ImagenesFicha from './ImagenesFicha';
 
 const coloresEstado = {
   Borrador: 'bg-gray-100 text-gray-600',
@@ -130,6 +131,7 @@ export default function FichaDetallePage() {
     { id: 'empaque', label: 'Empaque y Estiba', icono: BoxSelect },
     { id: 'microbiologia', label: 'Microbiología', icono: Bug },
     { id: 'manejo', label: 'Manejo y Disposición', icono: ShieldCheck },
+    { id: 'imagenes', label: 'Imágenes', icono: Image },
     { id: 'anomalias', label: `Anomalías (${anomalias.length})`, icono: AlertTriangle },
   ];
 
@@ -149,7 +151,10 @@ export default function FichaDetallePage() {
         <div className="flex items-start justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">{ficha.codigo_ficha_local}</h1>
-            <p className="text-sm text-gray-500 mt-1">Versión {ficha.codigo_version}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              Código Local: <span className="font-medium text-gray-700">{ficha.codigo_material_local}</span>
+              {' · '}Versión {ficha.codigo_version}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
@@ -248,12 +253,18 @@ export default function FichaDetallePage() {
           {(estadoActual === 'Preliminar' || estadoActual === 'Vigente') && (
             <>
               <button
-                onClick={() => {
-                  const url = `/api/export/ficha/${id}/pdf`;
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = `ficha_${ficha.codigo_ficha_local || id}.pdf`;
-                  link.click();
+                onClick={async () => {
+                  try {
+                    const res = await api.get(`/dsms/export/ficha/${id}/pdf`, { responseType: 'blob' });
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `ficha_${ficha.codigo_ficha_local || id}.pdf`;
+                    link.click();
+                    window.URL.revokeObjectURL(url);
+                  } catch (err) {
+                    alert(err.response?.data?.detail || 'Error al exportar PDF');
+                  }
                 }}
                 className="inline-flex items-center gap-1 px-4 py-2 bg-[#044926] text-white rounded-lg text-sm font-medium hover:bg-[#29b34b] transition-colors"
               >
@@ -261,12 +272,18 @@ export default function FichaDetallePage() {
                 Exportar PDF
               </button>
               <button
-                onClick={() => {
-                  const url = `/api/export/fichas/excel`;
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = 'fichas_tecnicas.xlsx';
-                  link.click();
+                onClick={async () => {
+                  try {
+                    const res = await api.get('/dsms/export/fichas/excel', { responseType: 'blob' });
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = 'fichas_tecnicas.xlsx';
+                    link.click();
+                    window.URL.revokeObjectURL(url);
+                  } catch (err) {
+                    alert(err.response?.data?.detail || 'Error al exportar Excel');
+                  }
                 }}
                 className="inline-flex items-center gap-1 px-4 py-2 border border-[#044926] text-[#044926] rounded-lg text-sm font-medium hover:bg-[#044926]/5 transition-colors"
               >
@@ -304,6 +321,14 @@ export default function FichaDetallePage() {
       {tab === 'empaque' && <SeccionJsonb datos={ficha.empaque_estiba} titulo="Empaque y Estiba" />}
       {tab === 'microbiologia' && <SeccionJsonb datos={ficha.microbiologia} titulo="Microbiología y Metales Pesados" />}
       {tab === 'manejo' && <SeccionJsonb datos={ficha.manejo_disposicion} titulo="Manejo y Disposición" />}
+      {tab === 'imagenes' && (
+        <ImagenesFicha
+          idFicha={id}
+          imagenes={ficha.caracteristicas?.imagenes}
+          onActualizar={cargar}
+          soloLectura={true}
+        />
+      )}
       {tab === 'anomalias' && <TabAnomalias anomalias={anomalias} />}
     </div>
   );

@@ -67,6 +67,11 @@ export default function FichaCrearPage() {
 
   // Paso 2: Contenido
   const [contenido, setContenido] = useState({
+    // Especificaciones del contenido
+    peso_contenido_valor: '', peso_contenido_unidad: 'g',
+    volumen_contenido_valor: '', volumen_contenido_unidad: 'oz',
+    calibre_contenido: '',
+    // Geometría
     profundidad_pilar_valor: '', profundidad_pilar_tolerancia: '', profundidad_pilar_unidad: 'mm',
     diametro_alveolo_valor: '', diametro_alveolo_tolerancia: '', diametro_alveolo_unidad: 'mm',
     profundidad_cavidad_valor: '', profundidad_cavidad_tolerancia: '', profundidad_cavidad_unidad: 'mm',
@@ -209,7 +214,13 @@ export default function FichaCrearPage() {
       };
 
       const res = await api.post('/ficha', payload);
-      navigate(`/fichas/${res.data.id_ficha}`);
+      const nuevaFichaId = res.data.id_ficha;
+      const irAImagenes = window.confirm('Ficha creada exitosamente. ¿Deseas subir imágenes del producto ahora?');
+      if (irAImagenes) {
+        navigate(`/fichas/${nuevaFichaId}/editar?paso=5`);
+      } else {
+        navigate(`/fichas/${nuevaFichaId}`);
+      }
     } catch (err) {
       const msg = err.response?.data?.detail || 'Error al crear la ficha';
       setError(typeof msg === 'object' ? JSON.stringify(msg) : msg);
@@ -495,53 +506,134 @@ function PasoContenidoDinamico({ datos, setDatos, campos, tipoContenido }) {
     setDatos((prev) => ({ ...prev, [campo]: valor }));
   }
 
+  const tc = (tipoContenido || '').toLowerCase();
+
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-        Todos los campos de esta sección son opcionales. Llena solo los que apliquen a este producto.
-      </p>
-      {campos.map((grupo) => (
-        <div
-          key={grupo.prefijo}
-          className="grid grid-cols-4 gap-3 items-end p-3 rounded-lg bg-gray-50"
-        >
-          <div className="col-span-4 flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">
-              {grupo.label}
-              <TipCampo campo={grupo.prefijo} />
-            </span>
-            <span className="text-xs text-gray-400">Opcional</span>
-          </div>
+    <div className="space-y-6">
+      {/* Especificaciones del contenido */}
+      <div>
+        <p className="text-sm font-semibold text-gray-700 mb-3">Especificaciones del Contenido</p>
+        <p className="text-xs text-gray-500 mb-3">Características del producto que contiene el empaque (opcional).</p>
+        <div className="grid grid-cols-3 gap-4">
+          {(tc.includes('huevo') || tc.includes('fruta') || !tc.includes('vaso')) && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Peso del contenido {tc.includes('huevo') ? '(peso del huevo)' : tc.includes('fruta') ? '(peso de la fruta)' : ''}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number" step="any"
+                  value={datos.peso_contenido_valor}
+                  onChange={(e) => handleChange('peso_contenido_valor', e.target.value)}
+                  placeholder="Ej: 60"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+                />
+                <select
+                  value={datos.peso_contenido_unidad}
+                  onChange={(e) => handleChange('peso_contenido_unidad', e.target.value)}
+                  className="w-20 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+                >
+                  <option value="g">g</option>
+                  <option value="kg">kg</option>
+                  <option value="oz">oz</option>
+                  <option value="lb">lb</option>
+                </select>
+              </div>
+            </div>
+          )}
+          {(tc.includes('vaso') || tc.includes('pote')) && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Volumen del contenido {tc.includes('vaso') ? '(volumen del vaso)' : '(volumen del pote)'}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number" step="any"
+                  value={datos.volumen_contenido_valor}
+                  onChange={(e) => handleChange('volumen_contenido_valor', e.target.value)}
+                  placeholder="Ej: 12"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+                />
+                <select
+                  value={datos.volumen_contenido_unidad}
+                  onChange={(e) => handleChange('volumen_contenido_unidad', e.target.value)}
+                  className="w-20 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+                >
+                  <option value="oz">oz</option>
+                  <option value="ml">ml</option>
+                  <option value="L">L</option>
+                  <option value="gal">gal</option>
+                </select>
+              </div>
+            </div>
+          )}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Valor</label>
-            <input
-              type="number" step="any"
-              value={datos[`${grupo.prefijo}_valor`]}
-              onChange={(e) => handleChange(`${grupo.prefijo}_valor`, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Tolerancia (±)</label>
-            <input
-              type="number" step="any"
-              value={datos[`${grupo.prefijo}_tolerancia`]}
-              onChange={(e) => handleChange(`${grupo.prefijo}_tolerancia`, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Unidad</label>
+            <label className="block text-xs text-gray-500 mb-1">
+              Calibre / Tamaño {tc.includes('huevo') ? '(AA, A, B, C)' : tc.includes('fruta') ? '(calibre de fruta)' : ''}
+            </label>
             <input
               type="text"
-              value={datos[`${grupo.prefijo}_unidad`]}
-              onChange={(e) => handleChange(`${grupo.prefijo}_unidad`, e.target.value)}
+              value={datos.calibre_contenido}
+              onChange={(e) => handleChange('calibre_contenido', e.target.value)}
+              placeholder={tc.includes('huevo') ? 'Ej: AA, A, B' : tc.includes('fruta') ? 'Ej: Cal. 18, Cal. 24' : 'Ej: Estándar'}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
             />
           </div>
-          <div />
         </div>
-      ))}
+      </div>
+
+      {/* Separador */}
+      <div className="border-t border-gray-100" />
+
+      {/* Geometría */}
+      <div>
+        <p className="text-sm font-semibold text-gray-700 mb-1">Geometría del Empaque</p>
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+          Todos los campos de geometría son opcionales. Llena solo los que apliquen a este producto.
+        </p>
+        {campos.map((grupo) => (
+          <div
+            key={grupo.prefijo}
+            className="grid grid-cols-4 gap-3 items-end p-3 rounded-lg bg-gray-50 mb-2"
+          >
+            <div className="col-span-4 flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">
+                {grupo.label}
+                <TipCampo campo={grupo.prefijo} />
+              </span>
+              <span className="text-xs text-gray-400">Opcional</span>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Valor</label>
+              <input
+                type="number" step="any"
+                value={datos[`${grupo.prefijo}_valor`]}
+                onChange={(e) => handleChange(`${grupo.prefijo}_valor`, e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Tolerancia (±)</label>
+              <input
+                type="number" step="any"
+                value={datos[`${grupo.prefijo}_tolerancia`]}
+                onChange={(e) => handleChange(`${grupo.prefijo}_tolerancia`, e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Unidad</label>
+              <input
+                type="text"
+                value={datos[`${grupo.prefijo}_unidad`]}
+                onChange={(e) => handleChange(`${grupo.prefijo}_unidad`, e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+              />
+            </div>
+            <div />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

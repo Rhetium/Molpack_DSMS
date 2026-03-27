@@ -390,10 +390,38 @@ class ExportService:
 
         # Headers
         headers = [
+            # Identificación
             "Código Ficha", "Código Local", "País", "Estado",
-            "Versión", "Fecha Creación", "Creador",
-            "Largo (valor)", "Ancho (valor)", "Alto (valor)",
-            "Peso (valor)", "Ruptura (valor)",
+            "Versión", "Fecha Creación", "Creador", "Color",
+            # Características
+            "Largo (valor)", "Largo (tol)", "Largo (unid)",
+            "Ancho (valor)", "Ancho (tol)", "Ancho (unid)",
+            "Alto (valor)", "Alto (tol)", "Alto (unid)",
+            "Peso (valor)", "Peso (tol)", "Peso (unid)",
+            "Ruptura (valor)", "Ruptura (tol)", "Ruptura (unid)",
+            "T. Encolado (valor)", "T. Encolado (tol)", "T. Encolado (unid)",
+            "Absorción (valor)", "Absorción (tol)", "Absorción (unid)",
+            "Defl. Int (valor)", "Defl. Int (tol)", "Defl. Int (unid)",
+            "Defl. Ext (valor)", "Defl. Ext (tol)", "Defl. Ext (unid)",
+            # Contenido
+            "Prof. Pilar (valor)", "Prof. Pilar (tol)", "Prof. Pilar (unid)",
+            "Diám. Alvéolo (valor)", "Diám. Alvéolo (tol)", "Diám. Alvéolo (unid)",
+            "Prof. Cavidad (valor)", "Prof. Cavidad (tol)", "Prof. Cavidad (unid)",
+            "Diám. Cavidad (valor)", "Diám. Cavidad (tol)", "Diám. Cavidad (unid)",
+            # Empaque
+            "Tipo Empaque", "Color Empaque",
+            "Alto Emp. (valor)", "Alto Emp. (tol)", "Alto Emp. (unid)",
+            "Peso Emp. (valor)", "Peso Emp. (tol)", "Peso Emp. (unid)",
+            "Uds/Empaque", "Empaques/Estiba", "Camas/Estiba", "Empaques/Cama",
+            # Microbiología
+            "Aeróbico (valor)", "Aeróbico (lím)",
+            "Moho (valor)", "Moho (lím)",
+            "Coliforme (valor)", "Coliforme (lím)",
+            "E. Coli (valor)", "E. Coli (lím)",
+            "Salmonella (valor)", "Salmonella (lím)",
+            "Cadmio", "Plomo", "Mercurio", "Cromo",
+            # Manejo
+            "Uso", "Manejo", "Almacenamiento", "Transporte", "Vida Útil",
         ]
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
@@ -405,28 +433,69 @@ class ExportService:
         # Datos
         for row_idx, ficha in enumerate(fichas, 2):
             caract = ficha.caracteristicas or {}
+            cont = ficha.caracteristicas_contenido or {}
+            emp = ficha.empaque_estiba or {}
+            micro = ficha.microbiologia or {}
+            manejo = ficha.manejo_disposicion or {}
+
+            fecha = ""
+            if hasattr(ficha, 'fecha_registro') and ficha.fecha_registro:
+                fecha = ficha.fecha_registro.strftime("%d/%m/%Y")
+
             data = [
+                # Identificación
                 ficha.codigo_ficha_local or "",
                 ficha.codigo_material_local or "",
                 ficha.pais or "",
                 ficha.estado_ficha,
                 ficha.codigo_version,
-                ficha.fecha_creacion.strftime("%d/%m/%Y") if ficha.fecha_creacion else "",
+                fecha,
                 ficha.usuario_creador or "",
-                caract.get("dimensiones_largo_valor"),
-                caract.get("dimensiones_ancho_valor"),
-                caract.get("dimensiones_alto_valor"),
-                caract.get("peso_valor"),
-                caract.get("ruptura_valor"),
+                caract.get("color", ""),
+                # Características
+                caract.get("dimensiones_largo_valor"), caract.get("dimensiones_largo_tolerancia"), caract.get("dimensiones_largo_unidad"),
+                caract.get("dimensiones_ancho_valor"), caract.get("dimensiones_ancho_tolerancia"), caract.get("dimensiones_ancho_unidad"),
+                caract.get("dimensiones_alto_valor"), caract.get("dimensiones_alto_tolerancia"), caract.get("dimensiones_alto_unidad"),
+                caract.get("peso_valor"), caract.get("peso_tolerancia"), caract.get("peso_unidad"),
+                caract.get("ruptura_valor"), caract.get("ruptura_tolerancia"), caract.get("ruptura_unidad"),
+                caract.get("tiempo_encolado_valor"), caract.get("tiempo_encolado_tolerancia"), caract.get("tiempo_encolado_unidad"),
+                caract.get("porcentaje_absorcion_valor"), caract.get("porcentaje_absorcion_tolerancia"), caract.get("porcentaje_absorcion_unidad"),
+                caract.get("deflexion_interna_valor"), caract.get("deflexion_interna_tolerancia"), caract.get("deflexion_interna_unidad"),
+                caract.get("deflexion_externa_valor"), caract.get("deflexion_externa_tolerancia"), caract.get("deflexion_externa_unidad"),
+                # Contenido
+                cont.get("profundidad_pilar_valor"), cont.get("profundidad_pilar_tolerancia"), cont.get("profundidad_pilar_unidad"),
+                cont.get("diametro_alveolo_valor"), cont.get("diametro_alveolo_tolerancia"), cont.get("diametro_alveolo_unidad"),
+                cont.get("profundidad_cavidad_valor"), cont.get("profundidad_cavidad_tolerancia"), cont.get("profundidad_cavidad_unidad"),
+                cont.get("diametro_cavidad_valor"), cont.get("diametro_cavidad_tolerancia"), cont.get("diametro_cavidad_unidad"),
+                # Empaque
+                emp.get("tipo_empaque"), emp.get("color_empaque"),
+                emp.get("alto_empaque_valor"), emp.get("alto_empaque_tolerancia"), emp.get("alto_empaque_unidad"),
+                emp.get("peso_empaque_valor"), emp.get("peso_empaque_tolerancia"), emp.get("peso_empaque_unidad"),
+                emp.get("undidades_empaque"), emp.get("empaques_estiba"), emp.get("camas_estiba"), emp.get("empaques_camas_estiba"),
+                # Microbiología
+                micro.get("recuento_aerobico_valor"), micro.get("recuento_aerobico_limite"),
+                micro.get("recuento_moho_valor"), micro.get("recuento_moho_limite"),
+                micro.get("coliforme_valor"), micro.get("coliforme_limite"),
+                micro.get("escherichia_coli_valor"), micro.get("escherichia_coli_limite"),
+                micro.get("salmonella_spp_valor"), micro.get("salmonella_spp_limite"),
+                micro.get("cadmio_valor"), micro.get("plomo_valor"), micro.get("mercurio_valor"), micro.get("cromo_valor"),
+                # Manejo
+                manejo.get("uso"), manejo.get("manejo"), manejo.get("almacenamiento"),
+                manejo.get("transporte"), manejo.get("vida_util"),
             ]
             for col, valor in enumerate(data, 1):
                 cell = ws.cell(row=row_idx, column=col, value=valor)
                 cell.border = thin_border
-                cell.alignment = Alignment(horizontal="center")
+                cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
         # Ancho de columnas
         for col in range(1, len(headers) + 1):
             ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = 16
+
+        # Columnas de texto más anchas
+        manejo_start = len(headers) - 4
+        for i in range(manejo_start, len(headers) + 1):
+            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = 30
 
         output = io.BytesIO()
         wb.save(output)

@@ -51,11 +51,18 @@ export default function FichasPage() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => {
-              const link = document.createElement('a');
-              link.href = '/api/export/fichas/excel';
-              link.download = 'fichas_tecnicas.xlsx';
-              link.click();
+            onClick={async () => {
+              try {
+                const res = await api.get('/dsms/export/fichas/excel', { responseType: 'blob' });
+                const url = window.URL.createObjectURL(new Blob([res.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'fichas_tecnicas.xlsx';
+                link.click();
+                window.URL.revokeObjectURL(url);
+              } catch (err) {
+                alert('Error al exportar Excel');
+              }
             }}
             className="flex items-center gap-2 border border-[#044926] text-[#044926] px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-[#044926]/5 transition-colors"
           >

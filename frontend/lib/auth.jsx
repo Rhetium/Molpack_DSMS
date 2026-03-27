@@ -7,25 +7,39 @@ export function AuthProvider({ children }) {
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
+    const token = localStorage.getItem('dsms_token');
     const stored = localStorage.getItem('dsms_user');
-    if (stored) {
+
+    if (token && stored) {
       try {
-        setUser(JSON.parse(stored));
+        const userData = JSON.parse(stored);
+        // Verificar expiración del token decodificando el payload
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const exp = payload.exp * 1000;
+        if (Date.now() < exp) {
+          setUser(userData);
+        } else {
+          localStorage.removeItem('dsms_token');
+          localStorage.removeItem('dsms_user');
+        }
       } catch {
+        localStorage.removeItem('dsms_token');
         localStorage.removeItem('dsms_user');
       }
     }
     setCargando(false);
   }, []);
 
-  function logout() {
-    localStorage.removeItem('dsms_user');
-    setUser(null);
-  }
-
-  function login(userData) {
+  function login(userData, token) {
+    localStorage.setItem('dsms_token', token);
     localStorage.setItem('dsms_user', JSON.stringify(userData));
     setUser(userData);
+  }
+
+  function logout() {
+    localStorage.removeItem('dsms_token');
+    localStorage.removeItem('dsms_user');
+    setUser(null);
   }
 
   return (

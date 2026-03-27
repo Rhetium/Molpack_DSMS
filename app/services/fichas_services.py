@@ -233,12 +233,12 @@ class FichaService:
             contenido_material=material.contenido,
             caracteristicas_contenido=ficha_data.caracteristicas_contenido,
         )
-
+        #---SE GENERA EL CODIGO DE LOCAL DE LA FICHA (SE VA A CAMBIAR)---
         now = datetime.now()
         version_inicial = "1.0"
         estado_inicial = ESTADO_BORRADOR
         pais_iso = nombre_pais_a_iso(ficha_data.pais)
-
+        
         await self._validar_codigo_material_local_unico(
             id_material=ficha_data.id_material_corporativo,
             pais=pais_iso,
@@ -251,7 +251,7 @@ class FichaService:
             pais=pais_iso,
             codigo_version=version_inicial,
         )
-
+        #-----------------------------------------------------------------
         # PASO 1: Crear kitem base (auditoría de CREACION automática)
         kitem = await self.kitem_service.crear_kitem(
             KItemCreateSchema(
