@@ -175,6 +175,8 @@ function TabInfo({ material }) {
     { label: 'Nombre Corporativo', valor: material.nombre_corporativo },
     { label: 'Categoría', valor: material.categoria },
     { label: 'Contenido', valor: material.contenido },
+    { label: 'Sector', valor: material.sector },
+    { label: 'Característica', valor: material.caracteristica },
     { label: 'Material Base', valor: material.material_base },
     { label: 'Capacidad Nominal', valor: material.capacidad_nominal },
     { label: 'Tipo de Producto', valor: material.tipo_producto },

@@ -4,7 +4,15 @@ import { ArrowLeft, Save, AlertTriangle } from 'lucide-react';
 import api from '../../../lib/api';
 
 const CATEGORIAS = ['Estuche', 'Tapa', 'Separador', 'Bandeja', 'Porta vasos', 'Otro'];
-const CONTENIDOS = ['Huevos', 'Frutas', 'Potes de pintura', 'Vasos', 'Industrial', 'Otro'];
+const CONTENIDOS = [
+  'Huevos', 'Frutas y Verduras', 'Pinturas y recubrimientos', 'Vasos',
+  'Botellas', 'Alimentos frescos', 'Industrial', 'Otro',
+];
+
+const CARACTERISTICAS = [
+  'Bipartido', 'Con división', 'Con tapa', 'Con ventana', 'Elíptico',
+  'Llana', 'No aplica', 'Profunda', 'Sin división', 'Sin etiqueta', 'Sin ventana',
+];
 const MATERIALES_BASE = ['Pulpa Moldeada', 'Cartón', 'Plástico', 'EPS', 'Otros'];
 const TIPOS_PRODUCTO = ['Producto Terminado', 'Materia Prima', 'Insumo', 'Empaque'];
 
@@ -20,6 +28,8 @@ export default function MaterialEditarPage() {
     nombre_corporativo: '',
     contenido: '',
     categoria: '',
+    sector: '',
+    caracteristica: '',
     material_base: '',
     capacidad_nominal: '',
     tipo_producto: '',
@@ -35,6 +45,8 @@ export default function MaterialEditarPage() {
           nombre_corporativo: m.nombre_corporativo || '',
           contenido: m.contenido || '',
           categoria: m.categoria || '',
+          sector: m.sector || '',
+          caracteristica: m.caracteristica || '',
           material_base: m.material_base || '',
           capacidad_nominal: m.capacidad_nominal || '',
           tipo_producto: m.tipo_producto || '',
@@ -152,6 +164,25 @@ export default function MaterialEditarPage() {
               className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Seleccionar...</option>
               {TIPOS_PRODUCTO.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sector</label>
+            <input type="text" name="sector" value={form.sector} onChange={handleChange}
+              placeholder="Ej: Alimentos, Farmacéutico"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Característica</label>
+            <select name="caracteristica" value={form.caracteristica} onChange={handleChange}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Seleccionar...</option>
+              {CARACTERISTICAS.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
             </select>
           </div>
         </div>

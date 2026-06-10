@@ -12,10 +12,12 @@ cada acción relevante queda documentada de forma inmutable.
 from uuid import UUID
 from datetime import datetime
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.kitem_auditoria import KItemAuditoria
+from app.models.material import MaterialComercial
+from app.models.ficha import FichaTecnica
 
 
 class AuditoriaService:
@@ -72,16 +74,37 @@ class AuditoriaService:
         ktype: str | None = None,
         accion: str | None = None,
         usuario: str | None = None,
+        categoria: str | None = None,
     ) -> list[KItemAuditoria]:
         """Obtiene la actividad reciente del dataspace con filtros opcionales."""
         query = select(KItemAuditoria)
         conditions = []
+
         if ktype:
             conditions.append(KItemAuditoria.ktype == ktype)
         if accion:
             conditions.append(KItemAuditoria.accion == accion)
         if usuario:
             conditions.append(KItemAuditoria.usuario == usuario)
+
+        if categoria:
+            # IDs de materiales que pertenecen a la categoría
+            mat_ids_q = select(MaterialComercial.id_material_corporativo).where(
+                MaterialComercial.categoria == categoria
+            )
+            mat_ids = (await self.db_session.execute(mat_ids_q)).scalars().all()
+
+            # IDs de fichas vinculadas a esos materiales
+            ficha_ids_q = select(FichaTecnica.id_ficha).where(
+                FichaTecnica.id_material_corporativo.in_(mat_ids)
+            )
+            ficha_ids = (await self.db_session.execute(ficha_ids_q)).scalars().all()
+
+            all_ids = list(mat_ids) + list(ficha_ids)
+            if not all_ids:
+                return []
+            conditions.append(KItemAuditoria.kitem_id.in_(all_ids))
+
         if conditions:
             query = query.where(and_(*conditions))
         query = query.order_by(KItemAuditoria.fecha.desc()).offset(offset).limit(limite)

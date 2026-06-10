@@ -28,12 +28,14 @@ export default function AuditoriaPage() {
   const [cargando, setCargando] = useState(true);
   const [filtroKtype, setFiltroKtype] = useState('');
   const [filtroAccion, setFiltroAccion] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState('');
+  const [categorias, setCategorias] = useState([]);
   const [pagina, setPagina] = useState(0);
   const [hayMas, setHayMas] = useState(false);
   const [detalleEvento, setDetalleEvento] = useState(null);
   const [nombresMap, setNombresMap] = useState({});
 
-  // Cargar mapeo de IDs a nombres
+  // Cargar mapeo de IDs a nombres y lista de categorías
   useEffect(() => {
     async function cargarNombres() {
       try {
@@ -43,9 +45,12 @@ export default function AuditoriaPage() {
         ]);
         const map = {};
         if (matRes.status === 'fulfilled') {
-          matRes.value.data.forEach((m) => {
+          const mats = matRes.value.data;
+          mats.forEach((m) => {
             map[m.id_material_corporativo] = m.nombre_corporativo;
           });
+          const cats = [...new Set(mats.map((m) => m.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+          setCategorias(cats);
         }
         if (fichaRes.status === 'fulfilled') {
           fichaRes.value.data.forEach((f) => {
@@ -73,6 +78,7 @@ export default function AuditoriaPage() {
       };
       if (filtroKtype) params.ktype = filtroKtype;
       if (filtroAccion) params.accion = filtroAccion;
+      if (filtroCategoria) params.categoria = filtroCategoria;
 
       const res = await api.get('/dsms/auditoria/actividad', { params });
       const datos = res.data;
@@ -93,7 +99,7 @@ export default function AuditoriaPage() {
 
   useEffect(() => {
     cargar();
-  }, [filtroKtype, filtroAccion, pagina]);
+  }, [filtroKtype, filtroAccion, filtroCategoria, pagina]);
 
   // Reset página al cambiar filtros
   function handleFiltroKtype(valor) {
@@ -103,6 +109,11 @@ export default function AuditoriaPage() {
 
   function handleFiltroAccion(valor) {
     setFiltroAccion(valor);
+    setPagina(0);
+  }
+
+  function handleFiltroCategoria(valor) {
+    setFiltroCategoria(valor);
     setPagina(0);
   }
 
@@ -139,6 +150,16 @@ export default function AuditoriaPage() {
           <option value="">Todas las acciones</option>
           {ACCIONES.map((a) => (
             <option key={a.valor} value={a.valor}>{a.label}</option>
+          ))}
+        </select>
+        <select
+          value={filtroCategoria}
+          onChange={(e) => handleFiltroCategoria(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+        >
+          <option value="">Todas las categorías</option>
+          {categorias.map((cat) => (
+            <option key={cat} value={cat}>{cat}</option>
           ))}
         </select>
       </div>

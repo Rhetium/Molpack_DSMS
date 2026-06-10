@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.deps import get_session
 from app.models.ficha import FichaTecnica
@@ -45,9 +46,12 @@ FORMATOS_PERMITIDOS = {"image/jpeg", "image/png"}
 EXTENSIONES_PERMITIDAS = {".jpg", ".jpeg", ".png"}
 
 # Límites
-MAX_FILE_SIZE = 2 * 1024 * 1024  # 2MB
-MIN_DIMENSION = 400   # px
-MAX_DIMENSION = 4000  # px
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+MIN_DIMENSION = 100    # px
+MAX_DIMENSION = 8000   # px
+
+# Dimensiones más permisivas para planos técnicos (escaneos de A3/A2 a 300 DPI)
+MAX_DIMENSION_PLANO = 8000  # px
 
 
 # ============================================================
@@ -139,19 +143,34 @@ def validar_dimensiones(contenido: bytes) -> tuple[int, int]:
     return width, height
 
 
+_JPEG_SOF_MARKERS = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xCC}
+_JPEG_NO_LENGTH = frozenset([0xD8, 0xD9, *range(0xD0, 0xD8)])  # SOI, EOI, RST0-RST7
+
+
+def _jpeg_next_marker(data: bytes, i: int) -> tuple[int, int]:
+    """Avanza al siguiente marcador JPEG; retorna (marker, pos_tras_marker_byte)."""
+    while i < len(data) and data[i] == 0xFF:
+        i += 1
+    return (data[i], i + 1) if i < len(data) else (0, i)
+
+
 def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
-    """Extrae dimensiones de un JPEG leyendo markers SOF."""
+    """Extrae dimensiones de un JPEG leyendo markers SOF (todos los perfiles)."""
     i = 2
-    while i < len(data) - 1:
-        if data[i] != 0xFF:
+    while i + 3 < len(data):
+        marker, i = _jpeg_next_marker(data, i)
+        if marker in _JPEG_NO_LENGTH:
+            continue
+        if marker == 0xDA:  # SOS — fin de cabeceras
             break
-        marker = data[i + 1]
-        if marker in (0xC0, 0xC1, 0xC2):  # SOF markers
-            height = int.from_bytes(data[i + 5:i + 7], 'big')
-            width = int.from_bytes(data[i + 7:i + 9], 'big')
+        if i + 1 >= len(data):
+            break
+        length = int.from_bytes(data[i:i + 2], 'big')
+        if marker in _JPEG_SOF_MARKERS and i + 6 < len(data):
+            height = int.from_bytes(data[i + 3:i + 5], 'big')
+            width = int.from_bytes(data[i + 5:i + 7], 'big')
             return width, height
-        length = int.from_bytes(data[i + 2:i + 4], 'big')
-        i += 2 + length
+        i += length
     raise HTTPException(status_code=400, detail="No se pudieron leer las dimensiones del JPEG.")
 
 
@@ -227,20 +246,21 @@ async def subir_imagen(
     ruta = get_upload_path(id_ficha, tipo, ext)
     ruta.write_bytes(contenido)
 
-    # Actualizar JSONB con la ruta de la imagen
-    imagenes = ficha.caracteristicas.get("imagenes", {}) if ficha.caracteristicas else {}
-    imagenes[tipo] = {
-        "ruta": str(ruta),
-        "nombre_original": archivo.filename,
-        "formato": archivo.content_type,
-        "tamano_bytes": len(contenido),
-        "ancho": width,
-        "alto": height,
+    # Actualizar JSONB — crear nuevos dicts para que SQLAlchemy detecte el cambio
+    imagenes_previas = (ficha.caracteristicas or {}).get("imagenes", {})
+    imagenes_nuevas = {
+        **imagenes_previas,
+        tipo: {
+            "ruta": str(ruta),
+            "nombre_original": archivo.filename,
+            "formato": archivo.content_type,
+            "tamano_bytes": len(contenido),
+            "ancho": width,
+            "alto": height,
+        },
     }
-
-    if not ficha.caracteristicas:
-        ficha.caracteristicas = {}
-    ficha.caracteristicas = {**ficha.caracteristicas, "imagenes": imagenes}
+    ficha.caracteristicas = {**(ficha.caracteristicas or {}), "imagenes": imagenes_nuevas}
+    flag_modified(ficha, "caracteristicas")
     session.add(ficha)
     await session.commit()
 
@@ -270,7 +290,11 @@ async def obtener_imagen(
         )
 
     media_type = "image/png" if ruta.suffix == ".png" else "image/jpeg"
-    return FileResponse(ruta, media_type=media_type)
+    return FileResponse(
+        ruta,
+        media_type=media_type,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @router.delete("/{id_ficha}/imagen/{tipo}")
@@ -298,9 +322,10 @@ async def eliminar_imagen(
     )
     ficha = result.scalars().first()
     if ficha and ficha.caracteristicas:
-        imagenes = ficha.caracteristicas.get("imagenes", {})
-        imagenes.pop(tipo, None)
-        ficha.caracteristicas = {**ficha.caracteristicas, "imagenes": imagenes}
+        imagenes_previas = ficha.caracteristicas.get("imagenes", {})
+        imagenes_nuevas = {k: v for k, v in imagenes_previas.items() if k != tipo}
+        ficha.caracteristicas = {**ficha.caracteristicas, "imagenes": imagenes_nuevas}
+        flag_modified(ficha, "caracteristicas")
         session.add(ficha)
         await session.commit()
 

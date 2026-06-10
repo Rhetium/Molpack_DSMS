@@ -15,12 +15,12 @@ import api from '../../../lib/api';
 // Rangos amplios para todos los tipos de producto.
 // Se usan cuando no hay datos históricos suficientes.
 const RANGOS_ESTATICOS = {
-  dimensiones_largo_valor: { min: 10, max: 80, unidad: 'cm', sugerido: 30 },
-  dimensiones_ancho_valor: { min: 5, max: 60, unidad: 'cm', sugerido: 20 },
-  dimensiones_alto_valor: { min: 1, max: 20, unidad: 'cm', sugerido: 5 },
+  dimensiones_largo_valor: { min: 100, max: 500, unidad: 'mm', sugerido: 300 },
+  dimensiones_ancho_valor: { min: 80, max: 400, unidad: 'mm', sugerido: 250 },
+  dimensiones_alto_valor: { min: 10, max: 120, unidad: 'mm', sugerido: 50 },
   peso_valor: { min: 5, max: 200, unidad: 'g', sugerido: 50 },
-  ruptura_valor: { min: 0.5, max: 20, unidad: 'kgf', sugerido: 3 },
-  profundidad_pilar_valor: { min: 5, max: 50, unidad: 'mm', sugerido: 22 },
+  ruptura_valor: { min: 0.5, max: 25, unidad: 'Kgf', sugerido: 13 },
+  profundidad_pilar_valor: { min: 30, max: 60, unidad: 'mm', sugerido: 48 },
   diametro_alveolo_valor: { min: 25, max: 70, unidad: 'mm', sugerido: 45 },
   profundidad_cavidad_valor: { min: 5, max: 80, unidad: 'mm', sugerido: 35 },
   diametro_cavidad_valor: { min: 20, max: 200, unidad: 'mm', sugerido: 80 },

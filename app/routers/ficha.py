@@ -1,6 +1,5 @@
 from typing import List
 from uuid import UUID
-from pydantic import BaseModel
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +21,6 @@ from app.core.dsms_constants import (
 )
 
 router = APIRouter(prefix="/ficha", tags=["ficha"])
-
 
 def get_ficha_service(
     session: AsyncSession = Depends(get_session),
@@ -61,10 +59,12 @@ async def buscar_fichas(
     pais: str | None = None,
     estado_ficha: str | None = None,
     tipo_producto: str | None = None,
+    texto: str | None = None,
     service: FichaService = Depends(get_ficha_service),
 ):
     return await service.buscar_ficha(
-        pais=pais, estado_ficha=estado_ficha, tipo_producto=tipo_producto
+        pais=pais, estado_ficha=estado_ficha,
+        tipo_producto=tipo_producto, texto=texto,
     )
 
 

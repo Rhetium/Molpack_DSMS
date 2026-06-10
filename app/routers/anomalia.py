@@ -1,15 +1,3 @@
-"""
-Router de Anomalías — Endpoints API para detección y gestión.
-
-Endpoints:
-- POST /anomalias/analizar/ficha     → Analizar ficha técnica
-- POST /anomalias/analizar/material  → Analizar material comercial
-- GET  /anomalias/                   → Listar anomalías históricas
-- GET  /anomalias/{id}               → Obtener anomalía por ID
-- GET  /anomalias/kitem/{kitem_id}   → Anomalías de un k-item
-- PATCH /anomalias/{id}/resolver     → Resolver anomalía
-"""
-
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -17,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_session
 from app.services.anomalia_service import AnomaliaService
+from app.services.ml_anomalia_service import MLAnomaliaService
 from app.schemas.anomalia import (
     AnalizarFichaRequest,
     AnalizarMaterialRequest,
@@ -34,21 +23,27 @@ def get_anomalia_service(session: AsyncSession = Depends(get_session)) -> Anomal
     return AnomaliaService(db_session=session)
 
 
-# ========================
-# Análisis
-# ========================
+@router.get("/debug/{id_ficha}")
+async def debug_detectores(
+    id_ficha: UUID,
+    service: AnomaliaService = Depends(get_anomalia_service),
+):
+    """
+    [SOLO DESARROLLO] Ejecuta los 6 detectores sobre una ficha y devuelve
+    los datos intermedios de cada uno sin persistir anomalías.
+    """
+    return await service.analizar_debug(id_ficha)
 
-@router.post(
-    "/analizar/ficha",
-    response_model=ResultadoAnalisis,
-    summary="Analizar ficha técnica en busca de anomalías",
-    description=(
-        "Ejecuta todos los detectores sobre una ficha técnica: "
-        "valores atípicos, unidades inconsistentes, duplicados semánticos "
-        "y clasificación cruzada. Las anomalías encontradas se persisten "
-        "en el repositorio histórico."
-    ),
-)
+
+@router.post("/entrenar")
+async def entrenar_modelos_ml(
+    session: AsyncSession = Depends(get_session),
+):
+    svc = MLAnomaliaService(db_session=session)
+    return await svc.entrenar_modelos()
+
+
+@router.post("/analizar/ficha", response_model=ResultadoAnalisis)
 async def analizar_ficha(
     request: AnalizarFichaRequest,
     service: AnomaliaService = Depends(get_anomalia_service),
@@ -59,15 +54,7 @@ async def analizar_ficha(
     )
 
 
-@router.post(
-    "/analizar/material",
-    response_model=ResultadoAnalisis,
-    summary="Analizar material comercial en busca de anomalías",
-    description=(
-        "Ejecuta detectores de duplicados semánticos y clasificación "
-        "cruzada sobre un material comercial."
-    ),
-)
+@router.post("/analizar/material", response_model=ResultadoAnalisis)
 async def analizar_material(
     request: AnalizarMaterialRequest,
     service: AnomaliaService = Depends(get_anomalia_service),
@@ -78,16 +65,7 @@ async def analizar_material(
     )
 
 
-# ========================
-# Consulta de historial
-# ========================
-
-@router.get(
-    "/",
-    response_model=AnomaliaListResponse,
-    summary="Listar anomalías históricas",
-    description="Consulta el repositorio de anomalías con filtros opcionales.",
-)
+@router.get("/", response_model=AnomaliaListResponse)
 async def listar_anomalias(
     ktype: str | None = None,
     tipo_anomalia: str | None = None,
@@ -123,11 +101,7 @@ async def listar_anomalias(
     )
 
 
-@router.get(
-    "/kitem/{kitem_id}",
-    response_model=AnomaliaListResponse,
-    summary="Anomalías de un k-item específico",
-)
+@router.get("/kitem/{kitem_id}", response_model=AnomaliaListResponse)
 async def anomalias_por_kitem(
     kitem_id: UUID,
     estado: str | None = None,
@@ -145,19 +119,7 @@ async def anomalias_por_kitem(
     )
 
 
-# ========================
-# Resolución
-# ========================
-
-@router.patch(
-    "/{id_anomalia}/resolver",
-    response_model=AnomaliaRegistroSchema,
-    summary="Resolver una anomalía",
-    description=(
-        "Marca una anomalía como aceptada (el valor es correcto), "
-        "descartada (falso positivo) o corregida (se modificó el registro)."
-    ),
-)
+@router.patch("/{id_anomalia}/resolver", response_model=AnomaliaRegistroSchema)
 async def resolver_anomalia(
     id_anomalia: UUID,
     request: ResolverAnomaliaRequest,

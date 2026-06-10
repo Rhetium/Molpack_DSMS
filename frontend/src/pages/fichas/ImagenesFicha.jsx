@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { Upload, X, Image, FileImage, Trash2, Eye } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Upload, X, Image, FileImage, Trash2, Eye, AlertCircle } from 'lucide-react';
 import api from '../../../lib/api';
 
 const TIPOS_IMAGEN = [
@@ -7,27 +7,39 @@ const TIPOS_IMAGEN = [
   { id: 'plano_mecanico', label: 'Plano Mecánico', descripcion: 'Plano técnico con dimensiones y especificaciones' },
 ];
 
-const MAX_SIZE_MB = 2;
+const MAX_SIZE_MB = 5;
 const FORMATOS = '.jpg,.jpeg,.png';
 
 export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLectura = false }) {
   const [subiendo, setSubiendo] = useState(null);
   const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [imagenesRotas, setImagenesRotas] = useState({});
   const inputRefs = useRef({});
+
+  // Resetear imágenes rotas cuando cambian los datos (upload/delete exitoso)
+  useEffect(() => {
+    setImagenesRotas({});
+  }, [imagenes]);
 
   function getImagenInfo(tipo) {
     return imagenes?.[tipo] || null;
   }
 
+  // Cache buster usando tamano_bytes del archivo actual para forzar recarga tras reemplazar
   function getImagenUrl(tipo) {
-    return `/api/ficha/${idFicha}/imagen/${tipo}`;
+    const info = getImagenInfo(tipo);
+    const v = info?.tamano_bytes ?? 0;
+    return `/api/ficha/${idFicha}/imagen/${tipo}?v=${v}`;
+  }
+
+  function marcarImagenRota(tipo) {
+    setImagenesRotas((prev) => ({ ...prev, [tipo]: true }));
   }
 
   async function handleSubir(tipo, file) {
     if (!file) return;
 
-    // Validación cliente
     if (!['image/jpeg', 'image/png'].includes(file.type)) {
       setError('Solo se aceptan imágenes JPG y PNG.');
       return;
@@ -49,7 +61,7 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      if (onActualizar) onActualizar();
+      if (onActualizar) await onActualizar();
     } catch (err) {
       const msg = err.response?.data?.detail || 'Error al subir imagen';
       setError(typeof msg === 'object' ? JSON.stringify(msg) : msg);
@@ -63,9 +75,10 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
 
     try {
       await api.delete(`/ficha/${idFicha}/imagen/${tipo}`);
-      if (onActualizar) onActualizar();
+      if (onActualizar) await onActualizar();
     } catch (err) {
-      setError('Error al eliminar imagen');
+      const msg = err.response?.data?.detail || 'Error al eliminar imagen';
+      setError(typeof msg === 'object' ? JSON.stringify(msg) : msg);
     }
   }
 
@@ -83,7 +96,7 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {TIPOS_IMAGEN.map((tipo) => {
           const info = getImagenInfo(tipo.id);
-          const tieneImagen = !!info;
+          const tieneImagen = !!info && !imagenesRotas[tipo.id];
 
           return (
             <div key={tipo.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -132,10 +145,11 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
                       onClick={() => setPreview(tipo.id)}
                     >
                       <img
+                        key={getImagenUrl(tipo.id)}
                         src={getImagenUrl(tipo.id)}
                         alt={tipo.label}
                         className="w-full h-full object-contain"
-                        onError={(e) => { e.target.style.display = 'none'; }}
+                        onError={() => marcarImagenRota(tipo.id)}
                       />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
                         <Eye size={24} className="text-white opacity-0 group-hover:opacity-70 transition-opacity" />
@@ -144,10 +158,8 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
 
                     {/* Info */}
                     <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>{info.nombre_original || 'imagen'}</span>
-                      <span>
-                        {info.ancho}x{info.alto}px · {(info.tamano_bytes / 1024).toFixed(0)}KB
-                      </span>
+                      <span className="truncate max-w-[60%]">{info.nombre_original || 'imagen'}</span>
+                      <span>{info.ancho}x{info.alto}px · {(info.tamano_bytes / 1024).toFixed(0)}KB</span>
                     </div>
 
                     {/* Reemplazar */}
@@ -155,9 +167,23 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
                       <button
                         onClick={() => inputRefs.current[tipo.id]?.click()}
                         disabled={subiendo === tipo.id}
-                        className="w-full text-center text-xs text-[#044926] hover:text-[#29b34b] font-medium py-1.5 border border-dashed border-gray-200 rounded-lg hover:border-[#29b34b]/30 transition-colors"
+                        className="w-full text-center text-xs text-[#044926] hover:text-[#29b34b] font-medium py-1.5 border border-dashed border-gray-200 rounded-lg hover:border-[#29b34b]/30 transition-colors disabled:opacity-50"
                       >
                         {subiendo === tipo.id ? 'Subiendo...' : 'Reemplazar imagen'}
+                      </button>
+                    )}
+                  </div>
+                ) : imagenesRotas[tipo.id] ? (
+                  /* Imagen rota: archivo en disco no encontrado */
+                  <div className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-red-100 rounded-lg bg-red-50/40">
+                    <AlertCircle size={22} className="text-red-400 mb-2" />
+                    <p className="text-sm text-red-500 font-medium">Imagen no disponible</p>
+                    {!soloLectura && (
+                      <button
+                        onClick={() => inputRefs.current[tipo.id]?.click()}
+                        className="mt-2 text-xs text-[#044926] underline"
+                      >
+                        Subir nueva imagen
                       </button>
                     )}
                   </div>
@@ -178,7 +204,7 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
                         <Upload size={24} className="text-gray-400 mb-2" />
                         <p className="text-sm font-medium text-gray-600">Subir {tipo.label.toLowerCase()}</p>
                         <p className="text-xs text-gray-400 mt-1">{tipo.descripcion}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">JPG o PNG · Máx {MAX_SIZE_MB}MB · 400-4000px</p>
+                        <p className="text-xs text-gray-400 mt-0.5">JPG o PNG · Máx {MAX_SIZE_MB}MB</p>
                       </>
                     )}
                   </div>

@@ -13,9 +13,9 @@ import FichaDetallePage from './pages/fichas/FichaDetallePage';
 import FichaCrearPage from './pages/fichas/FichaCrearPage';
 import FichaEditarPage from './pages/fichas/FichaEditarPage';
 import AnomaliasPage from './pages/anomalias/AnomaliasPage';
-import BusquedaPage from './pages/busqueda/BusquedaPage';
 import AuditoriaPage from './pages/auditoria/AuditoriaPage';
 import GrafoPage from './pages/grafo/GrafoPage';
+import DevAnomaliaPage from './pages/dev/DevAnomaliaPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,9 +68,9 @@ function App() {
               <Route path="/fichas/:id" element={<FichaDetallePage />} />
               <Route path="/fichas/:id/editar" element={<FichaEditarPage />} />
               <Route path="/anomalias" element={<AnomaliasPage />} />
-              <Route path="/busqueda" element={<BusquedaPage />} />
               <Route path="/auditoria" element={<AuditoriaPage />} />
               <Route path="/grafo" element={<GrafoPage />} />
+              <Route path="/dev/anomalias" element={<DevAnomaliaPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

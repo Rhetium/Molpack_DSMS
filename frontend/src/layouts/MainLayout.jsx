@@ -5,7 +5,6 @@ import {
   FileText,
   AlertTriangle,
   History,
-  Search,
   Menu,
   X,
   LogOut,
@@ -19,7 +18,6 @@ const navegacion = [
   { nombre: 'Materiales', ruta: '/materiales', icono: Package },
   { nombre: 'Fichas Técnicas', ruta: '/fichas', icono: FileText },
   { nombre: 'Anomalías', ruta: '/anomalias', icono: AlertTriangle },
-  { nombre: 'Búsqueda Semántica', ruta: '/busqueda', icono: Search },
   { nombre: 'Auditoría', ruta: '/auditoria', icono: History },
   { nombre: 'Grafo', ruta: '/grafo', icono: Network },
 ];

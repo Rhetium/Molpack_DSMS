@@ -1,20 +1,3 @@
-"""
-Router de Búsqueda Semántica — API REST del motor de búsqueda del Dataspace.
-
-Expone endpoints para:
-- Búsqueda semántica por texto libre
-- Detección de duplicados pre-creación
-- Búsqueda de k-items similares a otro k-item
-- Reindexación de embeddings (individual y masiva)
-- Estadísticas de cobertura de embeddings
-
-Todos los endpoints están bajo el prefijo /dsms/semantica
-
-Referencia DSMS (Nahshon et al., 2023):
-- Implementa "Data Exploration → Semantic Search" (Sección 2.3.4)
-- Complementa la exploración por grafo (router dsms.py) con búsqueda vectorial
-"""
-
 from uuid import UUID
 from typing import List
 
@@ -44,10 +27,6 @@ def get_busqueda_service(
     return BusquedaSemanticaService(db_session=session)
 
 
-# ============================================================
-# BÚSQUEDA SEMÁNTICA
-# ============================================================
-
 @router.post(
     "/buscar",
     response_model=BusquedaSemanticaResponse,
@@ -68,10 +47,9 @@ async def buscar_semanticamente(
         estado=request.estado,
         limite=request.limite,
         umbral_similitud=request.umbral_similitud,
-        filtro_texto=request.filtro_texto, # Para destacar términos coincidentes en frontend
+        filtro_texto=request.filtro_texto,
     )
 
-    # Mapear a schemas de respuesta
     resultados = [
         ResultadoBusquedaSchema(
             kitem=KItemBusquedaSchema.model_validate(r["kitem"]),
@@ -98,9 +76,6 @@ async def buscar_semanticamente(
     )
 
 
-# ============================================================
-# DETECCIÓN DE DUPLICADOS
-# ============================================================
 
 @router.post(
     "/duplicados",
@@ -168,9 +143,6 @@ async def detectar_duplicados(
     )
 
 
-# ============================================================
-# BÚSQUEDA POR K-ITEM SIMILAR
-# ============================================================
 
 @router.get(
     "/similares/{kitem_id}",
@@ -204,9 +176,6 @@ async def buscar_similares(
     ]
 
 
-# ============================================================
-# REINDEXACIÓN
-# ============================================================
 
 @router.post(
     "/reindexar/{kitem_id}",
@@ -253,9 +222,6 @@ async def reindexar_masivo(
     return ReindexacionResponse(**resultado)
 
 
-# ============================================================
-# ESTADÍSTICAS
-# ============================================================
 
 @router.get(
     "/estadisticas",

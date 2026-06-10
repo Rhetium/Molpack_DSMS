@@ -10,10 +10,10 @@ const PAISES = [
   { code: 'VE', nombre: 'Venezuela' },
   { code: 'EC', nombre: 'Ecuador' },
   { code: 'PE', nombre: 'Perú' },
-  { code: 'CR', nombre: 'Costa Rica' },
+  { code: 'PR', nombre: 'República Dominicana' },
   { code: 'GT', nombre: 'Guatemala' },
   { code: 'HN', nombre: 'Honduras' },
-  { code: 'SV', nombre: 'El Salvador' },
+  { code: 'PA', nombre: 'Panamá' },
 ];
 
 const PASOS = [
@@ -25,16 +25,14 @@ const PASOS = [
   { id: 5, titulo: 'Manejo y Disposición', descripcion: 'Almacenamiento, transporte y uso' },
 ];
 
-const CAMPOS_CARACTERISTICAS = [
+const CAMPOS_CARACTERISTICAS_BASE = [
   { prefijo: 'dimensiones_largo', label: 'Largo' },
   { prefijo: 'dimensiones_ancho', label: 'Ancho' },
   { prefijo: 'dimensiones_alto', label: 'Alto' },
   { prefijo: 'peso', label: 'Peso' },
-  { prefijo: 'ruptura', label: 'Ruptura' },
-  { prefijo: 'tiempo_encolado', label: 'Tiempo de Encolado' },
+  { prefijo: 'ruptura', label: 'Ruptura', sinTolerancia: true },
+  { prefijo: 'tiempo_encolado', label: 'Tiempo de Encolado', sinTolerancia: true },
   { prefijo: 'porcentaje_absorcion', label: 'Porcentaje de Absorción' },
-  { prefijo: 'deflexion_interna', label: 'Deflexión Interna' },
-  { prefijo: 'deflexion_externa', label: 'Deflexión Externa' },
 ];
 
 export default function FichaCrearPage() {
@@ -49,20 +47,22 @@ export default function FichaCrearPage() {
   // Paso 0
   const [materialId, setMaterialId] = useState('');
   const [codigoLocal, setCodigoLocal] = useState('');
+  const [nombreLocal, setNombreLocal] = useState('');
   const [pais, setPais] = useState('');
 
   // Paso 1: Características
   const [caracteristicas, setCaracteristicas] = useState({
     color: '',
-    dimensiones_largo_valor: '', dimensiones_largo_tolerancia: '', dimensiones_largo_unidad: 'cm',
-    dimensiones_ancho_valor: '', dimensiones_ancho_tolerancia: '', dimensiones_ancho_unidad: 'cm',
-    dimensiones_alto_valor: '', dimensiones_alto_tolerancia: '', dimensiones_alto_unidad: 'cm',
-    peso_valor: '', peso_tolerancia: '', peso_unidad: 'g',
-    ruptura_valor: '', ruptura_tolerancia: '', ruptura_unidad: 'kgf',
-    tiempo_encolado_valor: '', tiempo_encolado_tolerancia: '', tiempo_encolado_unidad: 's',
-    porcentaje_absorcion_valor: '', porcentaje_absorcion_tolerancia: '', porcentaje_absorcion_unidad: '%',
-    deflexion_interna_valor: '', deflexion_interna_tolerancia: '', deflexion_interna_unidad: 'mm',
-    deflexion_externa_valor: '', deflexion_externa_tolerancia: '', deflexion_externa_unidad: 'mm',
+    dimensiones_largo_valor: '', dimensiones_largo_tolerancia: '', dimensiones_largo_unidad: 'mm', dimensiones_largo_nc: false,
+    dimensiones_ancho_valor: '', dimensiones_ancho_tolerancia: '', dimensiones_ancho_unidad: 'mm', dimensiones_ancho_nc: false,
+    dimensiones_alto_valor: '', dimensiones_alto_tolerancia: '', dimensiones_alto_unidad: 'mm', dimensiones_alto_nc: false,
+    peso_valor: '', peso_tolerancia: '', peso_unidad: 'g', peso_nc: false,
+    ruptura_valor: '', ruptura_unidad: 'Kgf', ruptura_nc: false,
+    tiempo_encolado_valor: '', tiempo_encolado_unidad: 'min', tiempo_encolado_nc: false,
+    porcentaje_absorcion_valor: '', porcentaje_absorcion_tolerancia: '', porcentaje_absorcion_unidad: '%', porcentaje_absorcion_nc: false,
+    deflexion_interna_valor: '', deflexion_interna_unidad: 'mm', deflexion_interna_nc: false,
+    deflexion_externa_valor: '', deflexion_externa_unidad: 'mm', deflexion_externa_nc: false,
+    resistencia_valor: '', resistencia_unidad: 'Kgf', resistencia_nc: false,
   });
 
   // Paso 2: Contenido
@@ -72,31 +72,33 @@ export default function FichaCrearPage() {
     volumen_contenido_valor: '', volumen_contenido_unidad: 'oz',
     calibre_contenido: '',
     // Geometría
-    profundidad_pilar_valor: '', profundidad_pilar_tolerancia: '', profundidad_pilar_unidad: 'mm',
-    diametro_alveolo_valor: '', diametro_alveolo_tolerancia: '', diametro_alveolo_unidad: 'mm',
-    profundidad_cavidad_valor: '', profundidad_cavidad_tolerancia: '', profundidad_cavidad_unidad: 'mm',
-    diametro_cavidad_valor: '', diametro_cavidad_tolerancia: '', diametro_cavidad_unidad: 'mm',
+    profundidad_pilar_valor: '', profundidad_pilar_tolerancia: '', profundidad_pilar_unidad: 'mm', profundidad_pilar_nc: false,
+    diametro_alveolo_valor: '', diametro_alveolo_tolerancia: '', diametro_alveolo_unidad: 'mm', diametro_alveolo_nc: false,
+    profundidad_cavidad_valor: '', profundidad_cavidad_tolerancia: '', profundidad_cavidad_unidad: 'mm', profundidad_cavidad_nc: false,
+    diametro_cavidad_valor: '', diametro_cavidad_tolerancia: '', diametro_cavidad_unidad: 'mm', diametro_cavidad_nc: false,
+    ancho_cavidad_valor: '', ancho_cavidad_tolerancia: '', ancho_cavidad_unidad: 'mm', ancho_cavidad_nc: false,
+    largo_cavidad_valor: '', largo_cavidad_tolerancia: '', largo_cavidad_unidad: 'mm', largo_cavidad_nc: false,
   });
 
   // Paso 3: Empaque
   const [empaque, setEmpaque] = useState({
     tipo_empaque: '', color_empaque: '',
     alto_empaque_valor: '', alto_empaque_tolerancia: '', alto_empaque_unidad: 'cm',
-    peso_empaque_valor: '', peso_empaque_tolerancia: '', peso_empaque_unidad: 'kg',
+    peso_empaque_valor: '', peso_empaque_tolerancia: '', peso_empaque_unidad: 'Kg',
     undidades_empaque: '', empaques_estiba: '', camas_estiba: '', empaques_camas_estiba: '',
   });
 
   // Paso 4: Microbiología
   const [microbiologia, setMicrobiologia] = useState({
-    recuento_aerobico_valor: '', recuento_aerobico_limite: '',
-    recuento_moho_valor: '', recuento_moho_limite: '',
-    coliforme_valor: '', coliforme_limite: '',
-    escherichia_coli_valor: '', escherichia_coli_limite: '',
-    salmonella_spp_valor: '', salmonella_spp_limite: '',
-    cadmio_valor: '', cadmio_unidad: 'mg/kg',
-    plomo_valor: '', plomo_unidad: 'mg/kg',
-    mercurio_valor: '', mercurio_unidad: 'mg/kg',
-    cromo_valor: '', cromo_unidad: 'mg/kg',
+    recuento_aerobico_valor: '', recuento_aerobico_limite: '', recuento_aerobico_nc: false,
+    recuento_moho_valor: '', recuento_moho_limite: '', recuento_moho_nc: false,
+    coliforme_valor: '', coliforme_limite: '', coliforme_nc: false,
+    escherichia_coli_valor: '', escherichia_coli_limite: '', escherichia_coli_nc: false,
+    salmonella_spp_valor: '', salmonella_spp_limite: '', salmonella_spp_nc: false,
+    cadmio_valor: '', cadmio_unidad: 'mg/Kg', cadmio_nc: false,
+    plomo_valor: '', plomo_unidad: 'mg/Kg', plomo_nc: false,
+    mercurio_valor: '', mercurio_unidad: 'mg/Kg', mercurio_nc: false,
+    cromo_valor: '', cromo_unidad: 'mg/Kg', cromo_nc: false,
   });
 
   // Paso 5: Manejo
@@ -124,37 +126,57 @@ export default function FichaCrearPage() {
     return materialSeleccionado.contenido || 'Otro';
   }, [materialSeleccionado]);
 
-  // Campos de contenido — TODOS opcionales, orden según tipo de contenido
+  const tipoCategoria = useMemo(() => {
+    if (!materialSeleccionado) return null;
+    return materialSeleccionado.categoria || '';
+  }, [materialSeleccionado]);
+
+  // Campos de características — deflexion para Separadores, resistencia para Portavasos/Bandejas,
+  // ninguno para Estuches y otros
+  const camposCaracteristicasDinamicos = useMemo(() => {
+    const cat = (tipoCategoria || '').toLowerCase();
+    const campos = [...CAMPOS_CARACTERISTICAS_BASE];
+    if (cat.includes('separador')) {
+      campos.push(
+        { prefijo: 'deflexion_interna', label: 'Deflexión Interna', sinTolerancia: true },
+        { prefijo: 'deflexion_externa', label: 'Deflexión Externa', sinTolerancia: true },
+      );
+    } else if (cat.includes('portavaso') || cat.includes('bandeja')) {
+      campos.push({ prefijo: 'resistencia', label: 'Resistencia', sinTolerancia: true });
+    }
+    return campos;
+  }, [tipoCategoria]);
+
+  // Campos de contenido — según tipo de contenido del material
   const camposContenidoDinamicos = useMemo(() => {
     const c = (tipoContenido || '').toLowerCase();
-    if (c.includes('fruta')) {
-      return [
-        { prefijo: 'profundidad_cavidad', label: 'Profundidad Cavidad' },
-        { prefijo: 'diametro_cavidad', label: 'Diámetro Cavidad' },
-        { prefijo: 'profundidad_pilar', label: 'Profundidad Pilar' },
-        { prefijo: 'diametro_alveolo', label: 'Diámetro Alvéolo' },
-      ];
-    }
     if (c.includes('huevo')) {
       return [
         { prefijo: 'profundidad_pilar', label: 'Profundidad Pilar' },
         { prefijo: 'diametro_alveolo', label: 'Diámetro Alvéolo' },
+      ];
+    }
+    if (c.includes('fruta') || c.includes('pintura') || c.includes('vaso')) {
+      return [
         { prefijo: 'profundidad_cavidad', label: 'Profundidad Cavidad' },
         { prefijo: 'diametro_cavidad', label: 'Diámetro Cavidad' },
       ];
     }
-    // Potes de pintura, Vasos, Industrial, Otro
+    // Demás contenidos: profundidad + ancho + largo de cavidad
     return [
-      { prefijo: 'profundidad_pilar', label: 'Profundidad Pilar' },
-      { prefijo: 'diametro_alveolo', label: 'Diámetro Alvéolo' },
       { prefijo: 'profundidad_cavidad', label: 'Profundidad Cavidad' },
-      { prefijo: 'diametro_cavidad', label: 'Diámetro Cavidad' },
+      { prefijo: 'ancho_cavidad', label: 'Ancho Cavidad' },
+      { prefijo: 'largo_cavidad', label: 'Largo Cavidad' },
     ];
   }, [tipoContenido]);
 
   function limpiarSeccion(datos) {
     const limpio = {};
     for (const [k, v] of Object.entries(datos)) {
+      if (k.endsWith('_nc')) {
+        if (v === true) limpio[k] = true;  // solo enviar cuando está activo
+        continue;
+      }
       if (v === '' || v === null || v === undefined) {
         limpio[k] = null;
       } else if (typeof v === 'string' && !isNaN(v) && v.trim() !== '') {
@@ -189,35 +211,55 @@ export default function FichaCrearPage() {
     return {};
   }
 
+  function construirPayload() {
+    return {
+      id_material_corporativo: materialId,
+      codigo_material_local: codigoLocal || null,
+      nombre_local_material: nombreLocal || null,
+      usuario_creador: user?.usuario || 'sistema',
+      pais: pais || null,
+      caracteristicas: tieneValores(caracteristicas) ? limpiarSeccion(caracteristicas) : null,
+      caracteristicas_contenido: tieneValores(contenido) ? limpiarSeccion(contenido) : null,
+      empaque_estiba: tieneValores(empaque) ? limpiarSeccion(empaque) : null,
+      microbiologia: tieneValores(microbiologia) ? limpiarSeccion(microbiologia) : null,
+      manejo_disposicion: tieneValores(manejo) ? limpiarSeccion(manejo) : null,
+    };
+  }
+
+  async function guardarBorrador() {
+    setError(null);
+    if (!materialId) { setError('Selecciona un material para guardar el borrador'); return; }
+    setGuardando(true);
+    try {
+      const res = await api.post('/ficha', construirPayload());
+      navigate(`/fichas/${res.data.id_ficha}`);
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Error al guardar el borrador';
+      setError(typeof msg === 'object' ? JSON.stringify(msg) : msg);
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   async function handleSubmit() {
     setError(null);
     if (!materialId) { setError('Selecciona un material'); return; }
     if (!codigoLocal.trim()) { setError('El código de material local es obligatorio'); return; }
     if (!pais) { setError('Selecciona un país'); return; }
+    if (!nombreLocal.trim()) { setError('El nombre local del material es obligatorio'); return; }
+    if (!tieneValores(caracteristicas)) { setError('Completa al menos una característica física'); return; }
     if (!manejo.manejo || !manejo.almacenamiento || !manejo.transporte || !manejo.vida_util || !manejo.uso) {
-      setError('Los campos obligatorios de Manejo y Disposición son: manejo, almacenamiento, transporte, vida útil y uso');
+      setError('Manejo y Disposición requiere: uso, manejo, almacenamiento, transporte y vida útil');
       return;
     }
 
     setGuardando(true);
     try {
-      const payload = {
-        id_material_corporativo: materialId,
-        codigo_material_local: codigoLocal,
-        usuario_creador: user?.usuario || 'sistema',
-        pais,
-        caracteristicas: tieneValores(caracteristicas) ? limpiarSeccion(caracteristicas) : null,
-        caracteristicas_contenido: tieneValores(contenido) ? limpiarSeccion(contenido) : null,
-        empaque_estiba: tieneValores(empaque) ? limpiarSeccion(empaque) : null,
-        microbiologia: tieneValores(microbiologia) ? limpiarSeccion(microbiologia) : null,
-        manejo_disposicion: limpiarSeccion(manejo),
-      };
-
-      const res = await api.post('/ficha', payload);
+      const res = await api.post('/ficha', construirPayload());
       const nuevaFichaId = res.data.id_ficha;
       const irAImagenes = window.confirm('Ficha creada exitosamente. ¿Deseas subir imágenes del producto ahora?');
       if (irAImagenes) {
-        navigate(`/fichas/${nuevaFichaId}/editar?paso=5`);
+        navigate(`/fichas/${nuevaFichaId}?tab=imagenes`);
       } else {
         navigate(`/fichas/${nuevaFichaId}`);
       }
@@ -306,6 +348,7 @@ export default function FichaCrearPage() {
                 materiales={materiales}
                 materialId={materialId} setMaterialId={setMaterialId}
                 codigoLocal={codigoLocal} setCodigoLocal={setCodigoLocal}
+                nombreLocal={nombreLocal} setNombreLocal={setNombreLocal}
                 pais={pais} setPais={setPais}
                 materialSeleccionado={materialSeleccionado}
               />
@@ -322,7 +365,7 @@ export default function FichaCrearPage() {
                     className="w-full max-w-xs px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
                   />
                 </div>
-                <PasoMedidas datos={caracteristicas} setDatos={setCaracteristicas} campos={CAMPOS_CARACTERISTICAS} />
+                <PasoMedidas datos={caracteristicas} setDatos={setCaracteristicas} campos={camposCaracteristicasDinamicos} />
               </div>
             )}
             {paso === 2 && <PasoContenidoDinamico datos={contenido} setDatos={setContenido} campos={camposContenidoDinamicos} tipoContenido={tipoContenido} />}
@@ -332,7 +375,7 @@ export default function FichaCrearPage() {
           </div>
 
           {/* Navegación pasos */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <button
               onClick={() => setPaso((p) => Math.max(0, p - 1))}
               disabled={paso === 0}
@@ -341,23 +384,36 @@ export default function FichaCrearPage() {
               <ArrowLeft size={16} /> Anterior
             </button>
 
-            {paso < PASOS.length - 1 ? (
+            <div className="flex items-center gap-2">
+              {/* Guardar borrador — siempre visible, solo requiere material */}
               <button
-                onClick={() => setPaso((p) => Math.min(PASOS.length - 1, p + 1))}
-                className="flex items-center gap-1 px-4 py-2.5 bg-[#29b34b] text-white rounded-lg text-sm font-medium hover:bg-[#044926] transition-colors"
+                onClick={guardarBorrador}
+                disabled={guardando || !materialId}
+                className="flex items-center gap-1.5 px-4 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                title="Guarda lo que llevas sin validar campos obligatorios"
               >
-                Siguiente <ArrowRight size={16} />
+                <Save size={15} />
+                {guardando ? 'Guardando...' : 'Guardar borrador'}
               </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={guardando}
-                className="flex items-center gap-2 px-6 py-2.5 bg-[#044926] text-white rounded-lg text-sm font-medium hover:bg-[#29b34b] disabled:opacity-50 transition-colors"
-              >
-                <Save size={16} />
-                {guardando ? 'Creando...' : 'Crear Ficha Técnica'}
-              </button>
-            )}
+
+              {paso < PASOS.length - 1 ? (
+                <button
+                  onClick={() => setPaso((p) => Math.min(PASOS.length - 1, p + 1))}
+                  className="flex items-center gap-1 px-4 py-2.5 bg-[#29b34b] text-white rounded-lg text-sm font-medium hover:bg-[#044926] transition-colors"
+                >
+                  Siguiente <ArrowRight size={16} />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  disabled={guardando}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-[#044926] text-white rounded-lg text-sm font-medium hover:bg-[#29b34b] disabled:opacity-50 transition-colors"
+                >
+                  <Save size={16} />
+                  {guardando ? 'Creando...' : 'Crear Ficha Técnica'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -379,7 +435,7 @@ export default function FichaCrearPage() {
 }
 
 /* ========== PASO 0: Material y País ========== */
-function PasoMaterial({ materiales, materialId, setMaterialId, codigoLocal, setCodigoLocal, pais, setPais, materialSeleccionado }) {
+function PasoMaterial({ materiales, materialId, setMaterialId, codigoLocal, setCodigoLocal, nombreLocal, setNombreLocal, pais, setPais, materialSeleccionado }) {
   return (
     <div className="space-y-5">
       <div>
@@ -446,56 +502,93 @@ function PasoMaterial({ materiales, materialId, setMaterialId, codigoLocal, setC
           </select>
         </div>
       </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Local del Material</label>
+        <input
+          type="text"
+          value={nombreLocal}
+          onChange={(e) => setNombreLocal(e.target.value)}
+          placeholder="Ej: Estuche 12 sin ventana (nombre usado localmente)"
+          className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+        />
+      </div>
     </div>
   );
 }
 
-/* ========== PASO GENÉRICO: Medidas (valor/tolerancia/unidad) ========== */
+/* ========== PASO GENÉRICO: Medidas (valor/[tolerancia]/unidad) ========== */
 function PasoMedidas({ datos, setDatos, campos }) {
   function handleChange(campo, valor) {
     setDatos((prev) => ({ ...prev, [campo]: valor }));
   }
 
+  function toggleNc(prefijo) {
+    const ncKey = `${prefijo}_nc`;
+    const activar = !datos[ncKey];
+    setDatos((prev) => ({ ...prev, [ncKey]: activar }));
+  }
+
   return (
     <div className="space-y-4">
-      {campos.map((grupo) => (
-        <div key={grupo.prefijo} className="grid grid-cols-4 gap-3 items-end">
-          <div className="col-span-4">
-            <p className="text-sm font-medium text-gray-700">
-              {grupo.label}
-              <TipCampo campo={grupo.prefijo} />
-            </p>
+      {campos.map((grupo) => {
+        const isNc = !!datos[`${grupo.prefijo}_nc`];
+        const inputClass = `w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b] ${
+          isNc ? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-200'
+        }`;
+        return (
+          <div key={grupo.prefijo} className={`grid gap-3 items-end ${grupo.sinTolerancia ? 'grid-cols-3' : 'grid-cols-4'}`}>
+            <div className={`flex items-center justify-between ${grupo.sinTolerancia ? 'col-span-3' : 'col-span-4'}`}>
+              <p className="text-sm font-medium text-gray-700">
+                {grupo.label}
+                <TipCampo campo={grupo.prefijo} />
+              </p>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isNc}
+                  onChange={() => toggleNc(grupo.prefijo)}
+                  className="w-3.5 h-3.5 accent-amber-500"
+                />
+                <span className={`text-xs font-semibold ${isNc ? 'text-amber-600' : 'text-gray-400'}`}>N/C</span>
+              </label>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Valor</label>
+              <input
+                type="number" step="any" disabled={isNc}
+                value={isNc ? '' : datos[`${grupo.prefijo}_valor`] ?? ''}
+                onChange={(e) => handleChange(`${grupo.prefijo}_valor`, e.target.value)}
+                placeholder={isNc ? 'N/C' : ''}
+                className={inputClass}
+              />
+            </div>
+            {!grupo.sinTolerancia && (
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Tolerancia (±)</label>
+                <input
+                  type="number" step="any" disabled={isNc}
+                  value={isNc ? '' : datos[`${grupo.prefijo}_tolerancia`] ?? ''}
+                  onChange={(e) => handleChange(`${grupo.prefijo}_tolerancia`, e.target.value)}
+                  placeholder={isNc ? 'N/C' : ''}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Unidad</label>
+              <input
+                type="text" disabled={isNc}
+                value={isNc ? '' : datos[`${grupo.prefijo}_unidad`] ?? ''}
+                onChange={(e) => handleChange(`${grupo.prefijo}_unidad`, e.target.value)}
+                placeholder={isNc ? 'N/C' : ''}
+                className={inputClass}
+              />
+            </div>
+            {!grupo.sinTolerancia && <div />}
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Valor</label>
-            <input
-              type="number" step="any"
-              value={datos[`${grupo.prefijo}_valor`]}
-              onChange={(e) => handleChange(`${grupo.prefijo}_valor`, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Tolerancia (±)</label>
-            <input
-              type="number" step="any"
-              value={datos[`${grupo.prefijo}_tolerancia`]}
-              onChange={(e) => handleChange(`${grupo.prefijo}_tolerancia`, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Unidad</label>
-            <input
-              type="text"
-              value={datos[`${grupo.prefijo}_unidad`]}
-              onChange={(e) => handleChange(`${grupo.prefijo}_unidad`, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-            />
-          </div>
-          <div />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -514,7 +607,7 @@ function PasoContenidoDinamico({ datos, setDatos, campos, tipoContenido }) {
       <div>
         <p className="text-sm font-semibold text-gray-700 mb-3">Especificaciones del Contenido</p>
         <p className="text-xs text-gray-500 mb-3">Características del producto que contiene el empaque (opcional).</p>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           {(tc.includes('huevo') || tc.includes('fruta') || !tc.includes('vaso')) && (
             <div>
               <label className="block text-xs text-gray-500 mb-1">
@@ -591,48 +684,65 @@ function PasoContenidoDinamico({ datos, setDatos, campos, tipoContenido }) {
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
           Todos los campos de geometría son opcionales. Llena solo los que apliquen a este producto.
         </p>
-        {campos.map((grupo) => (
-          <div
-            key={grupo.prefijo}
-            className="grid grid-cols-4 gap-3 items-end p-3 rounded-lg bg-gray-50 mb-2"
-          >
-            <div className="col-span-4 flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-700">
-                {grupo.label}
-                <TipCampo campo={grupo.prefijo} />
-              </span>
-              <span className="text-xs text-gray-400">Opcional</span>
+        {campos.map((grupo) => {
+          const isNc = !!datos[`${grupo.prefijo}_nc`];
+          const inputClass = `w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b] ${
+            isNc ? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed' : 'border-gray-200'
+          }`;
+          return (
+            <div key={grupo.prefijo} className="grid grid-cols-4 gap-3 items-end p-3 rounded-lg bg-gray-50 mb-2">
+              <div className="col-span-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-700">
+                    {grupo.label}
+                    <TipCampo campo={grupo.prefijo} />
+                  </span>
+                  <span className="text-xs text-gray-400">Opcional</span>
+                </div>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isNc}
+                    onChange={() => setDatos((prev) => ({ ...prev, [`${grupo.prefijo}_nc`]: !prev[`${grupo.prefijo}_nc`] }))}
+                    className="w-3.5 h-3.5 accent-amber-500"
+                  />
+                  <span className={`text-xs font-semibold ${isNc ? 'text-amber-600' : 'text-gray-400'}`}>N/C</span>
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Valor</label>
+                <input
+                  type="number" step="any" disabled={isNc}
+                  value={isNc ? '' : datos[`${grupo.prefijo}_valor`] ?? ''}
+                  onChange={(e) => handleChange(`${grupo.prefijo}_valor`, e.target.value)}
+                  placeholder={isNc ? 'N/C' : ''}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Tolerancia (±)</label>
+                <input
+                  type="number" step="any" disabled={isNc}
+                  value={isNc ? '' : datos[`${grupo.prefijo}_tolerancia`] ?? ''}
+                  onChange={(e) => handleChange(`${grupo.prefijo}_tolerancia`, e.target.value)}
+                  placeholder={isNc ? 'N/C' : ''}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Unidad</label>
+                <input
+                  type="text" disabled={isNc}
+                  value={isNc ? '' : datos[`${grupo.prefijo}_unidad`] ?? ''}
+                  onChange={(e) => handleChange(`${grupo.prefijo}_unidad`, e.target.value)}
+                  placeholder={isNc ? 'N/C' : ''}
+                  className={inputClass}
+                />
+              </div>
+              <div />
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Valor</label>
-              <input
-                type="number" step="any"
-                value={datos[`${grupo.prefijo}_valor`]}
-                onChange={(e) => handleChange(`${grupo.prefijo}_valor`, e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Tolerancia (±)</label>
-              <input
-                type="number" step="any"
-                value={datos[`${grupo.prefijo}_tolerancia`]}
-                onChange={(e) => handleChange(`${grupo.prefijo}_tolerancia`, e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Unidad</label>
-              <input
-                type="text"
-                value={datos[`${grupo.prefijo}_unidad`]}
-                onChange={(e) => handleChange(`${grupo.prefijo}_unidad`, e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
-              />
-            </div>
-            <div />
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -743,47 +853,74 @@ function PasoMicrobiologia({ datos, setDatos }) {
     { prefijo: 'cromo', label: 'Cromo' },
   ];
 
+  const inputClass = (nc) =>
+    `w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b] ${
+      nc ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : 'border-gray-200'
+    }`;
+
   return (
     <div className="space-y-6">
       <div>
         <p className="text-sm font-medium text-gray-700 mb-3">Parámetros Microbiológicos (valor / límite)</p>
         <div className="space-y-3">
-          {pares.map((p) => (
-            <div key={p.prefijo} className="grid grid-cols-3 gap-3 items-end">
-              <p className="text-sm text-gray-600">{p.label}</p>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Valor</label>
-                <input type="number" step="any" value={datos[`${p.prefijo}_valor`]} onChange={(e) => h(`${p.prefijo}_valor`, e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]" />
+          {pares.map((p) => {
+            const nc = datos[`${p.prefijo}_nc`];
+            return (
+              <div key={p.prefijo} className="grid grid-cols-4 gap-3 items-end">
+                <p className="text-sm text-gray-600">{p.label}</p>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Valor</label>
+                  <input type="number" step="any" value={datos[`${p.prefijo}_valor`]}
+                    onChange={(e) => h(`${p.prefijo}_valor`, e.target.value)}
+                    disabled={nc} className={inputClass(nc)} />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Límite</label>
+                  <input type="number" step="any" value={datos[`${p.prefijo}_limite`]}
+                    onChange={(e) => h(`${p.prefijo}_limite`, e.target.value)}
+                    disabled={nc} className={inputClass(nc)} />
+                </div>
+                <div className="flex items-center gap-1.5 pb-1">
+                  <input type="checkbox" id={`${p.prefijo}_nc`} checked={nc}
+                    onChange={(e) => h(`${p.prefijo}_nc`, e.target.checked)}
+                    className="w-4 h-4 rounded accent-[#29b34b]" />
+                  <label htmlFor={`${p.prefijo}_nc`} className="text-xs text-gray-500 select-none">N/C</label>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Límite</label>
-                <input type="number" step="any" value={datos[`${p.prefijo}_limite`]} onChange={(e) => h(`${p.prefijo}_limite`, e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]" />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
       <div>
         <p className="text-sm font-medium text-gray-700 mb-3">Metales Pesados (valor / unidad)</p>
         <div className="space-y-3">
-          {metales.map((m) => (
-            <div key={m.prefijo} className="grid grid-cols-3 gap-3 items-end">
-              <p className="text-sm text-gray-600">{m.label}</p>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Valor</label>
-                <input type="number" step="any" value={datos[`${m.prefijo}_valor`]} onChange={(e) => h(`${m.prefijo}_valor`, e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]" />
+          {metales.map((m) => {
+            const nc = datos[`${m.prefijo}_nc`];
+            return (
+              <div key={m.prefijo} className="grid grid-cols-4 gap-3 items-end">
+                <p className="text-sm text-gray-600">{m.label}</p>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Valor</label>
+                  <input type="number" step="any" value={datos[`${m.prefijo}_valor`]}
+                    onChange={(e) => h(`${m.prefijo}_valor`, e.target.value)}
+                    disabled={nc} className={inputClass(nc)} />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Unidad</label>
+                  <input type="text" value={datos[`${m.prefijo}_unidad`]}
+                    onChange={(e) => h(`${m.prefijo}_unidad`, e.target.value)}
+                    disabled={nc} className={inputClass(nc)} />
+                </div>
+                <div className="flex items-center gap-1.5 pb-1">
+                  <input type="checkbox" id={`${m.prefijo}_nc`} checked={nc}
+                    onChange={(e) => h(`${m.prefijo}_nc`, e.target.checked)}
+                    className="w-4 h-4 rounded accent-[#29b34b]" />
+                  <label htmlFor={`${m.prefijo}_nc`} className="text-xs text-gray-500 select-none">N/C</label>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Unidad</label>
-                <input type="text" value={datos[`${m.prefijo}_unidad`]} onChange={(e) => h(`${m.prefijo}_unidad`, e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]" />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

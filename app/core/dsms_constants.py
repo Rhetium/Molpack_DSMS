@@ -19,16 +19,6 @@ ESTADO_ABREVIATURAS = {
     ESTADO_REVISION: "REV",
 }
 
-"""
-Constantes del Dataspace Management System.
-
-Define los nombres canónicos de k-types y tipos de relación
-semántica del grafo de conocimiento de Molpack.
-"""
-
-# ========================
-# K-TYPES del Dataspace
-# ========================
 KTYPE_MATERIAL_COMERCIAL = "MaterialComercial"
 KTYPE_FICHA_TECNICA = "FichaTecnica"
 # Futuros k-types:
@@ -37,21 +27,17 @@ KTYPE_FICHA_TECNICA = "FichaTecnica"
 # KTYPE_PROCESO = "ProcesoManufactura"
 # KTYPE_FICHA_COMERCIAL = "FichaComercial"
 
-# ========================
-# TIPOS DE RELACIÓN
-# ========================
-REL_PERTENECE_A = "pertenece_a"          # FichaTecnica → MaterialComercial
-REL_SE_DERIVA_DE = "se_deriva_de"        # FichaTecnica → FichaTecnica (versionamiento)
-REL_ES_VARIANTE_DE = "es_variante_de"    # Material → Material
-REL_RELACIONADO_CON = "relacionado_con"  # Relación genérica
-REL_SEMANTICAMENTE_SIMILAR = "semanticamente_similar"  # NUEVO: Descubierta por embeddings
+REL_PERTENECE_A = "pertenece_a"                        # FichaTecnica → MaterialComercial
+REL_SE_DERIVA_DE = "se_deriva_de"                      # FichaTecnica → FichaTecnica (versionamiento)
+REL_ES_VARIANTE_DE = "es_variante_de"                  # Material → Material
+REL_RELACIONADO_CON = "relacionado_con"
+REL_SEMANTICAMENTE_SIMILAR = "semanticamente_similar"  # Descubierta por embeddings
 
 # Futuros tipos de relación:
 # REL_CUMPLE_NORMA = "cumple_norma"          # Material/Ficha → Norma
 # REL_TIENE_INCIDENCIA = "tiene_incidencia"  # Ficha → Incidencia
 # REL_FABRICADO_POR = "fabricado_por"        # Material → ProcesoManufactura
 
-# Conjunto de relaciones válidas (para validación)
 RELACIONES_VALIDAS = {
     REL_PERTENECE_A,
     REL_SE_DERIVA_DE,
@@ -60,18 +46,14 @@ RELACIONES_VALIDAS = {
     REL_SEMANTICAMENTE_SIMILAR,
 }
 
-# ========================
-# ACCIONES DE AUDITORÍA
-# ========================
 ACCION_CREACION = "CREACION"
 ACCION_CAMBIO_ESTADO = "CAMBIO_ESTADO"
 ACCION_MODIFICACION = "MODIFICACION"
 ACCION_RELACION_CREADA = "RELACION_CREADA"
 ACCION_RELACION_ELIMINADA = "RELACION_ELIMINADA"
 ACCION_NUEVA_VERSION = "NUEVA_VERSION"
-ACCION_EMBEDDING_GENERADO = "EMBEDDING_GENERADO"  # NUEVO: Generación/regeneración de embedding
+ACCION_EMBEDDING_GENERADO = "EMBEDDING_GENERADO"
 
-# Conjunto de acciones válidas
 ACCIONES_VALIDAS = {
     ACCION_CREACION,
     ACCION_CAMBIO_ESTADO,
@@ -82,10 +64,6 @@ ACCIONES_VALIDAS = {
     ACCION_EMBEDDING_GENERADO,
 }
 
-# ========================
-# CONFIGURACIÓN SEMÁNTICA
-# ========================
-# Umbrales recomendados para detección de duplicados por k-type
 UMBRALES_DUPLICADOS = {
     KTYPE_MATERIAL_COMERCIAL: 0.85,
     KTYPE_FICHA_TECNICA: 0.80,
@@ -93,12 +71,6 @@ UMBRALES_DUPLICADOS = {
     "_default": 0.85,
 }
 
-# -------------------------
-# TIPOS DE CONTENIDO
-# -------------------------
-
-# Mapeo de tipo de contenido → campos obligatorios en caracteristicas_contenido
-# Campos de contenido disponibles (todos opcionales)
 CAMPOS_CONTENIDO = {
     "profundidad_pilar_valor",
     "profundidad_pilar_tolerancia",
@@ -113,7 +85,6 @@ CAMPOS_CONTENIDO = {
     "diametro_cavidad_tolerancia",
     "diametro_cavidad_unidad",
 }
-# Categorías de producto
 CATEGORIAS_PRODUCTO = {
     "Estuche",
     "Tapa",
@@ -123,7 +94,6 @@ CATEGORIAS_PRODUCTO = {
     "Otro",
 }
 
-# Tipos de contenido
 TIPOS_CONTENIDO = {
     "Huevos",
     "Frutas",

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, FileText, AlertTriangle, Package,
   Ruler, Egg, BoxSelect, Bug, ShieldCheck, ChevronRight,
-  Download, FileSpreadsheet, Image,
+  Download, FileSpreadsheet, Image, FlaskConical,
 } from 'lucide-react';
 import api from '../../../lib/api';
 import ImagenesFicha from './ImagenesFicha';
@@ -26,11 +26,12 @@ const transicionesPermitidas = {
 
 export default function FichaDetallePage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const [ficha, setFicha] = useState(null);
   const [material, setMaterial] = useState(null);
   const [anomalias, setAnomalias] = useState([]);
   const [cargando, setCargando] = useState(true);
-  const [tab, setTab] = useState('caracteristicas');
+  const [tab, setTab] = useState(searchParams.get('tab') || 'caracteristicas');
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
 
   async function cargar() {
@@ -177,6 +178,10 @@ export default function FichaDetallePage() {
             </Link>
           </div>
           <div>
+            <p className="text-xs text-gray-500">Nombre Local</p>
+            <p className="text-sm font-medium text-gray-900">{ficha.nombre_local_material || '—'}</p>
+          </div>
+          <div>
             <p className="text-xs text-gray-500">País</p>
             <p className="text-sm font-medium text-gray-900">{ficha.pais}</p>
           </div>
@@ -187,12 +192,6 @@ export default function FichaDetallePage() {
           <div>
             <p className="text-xs text-gray-500">Creador</p>
             <p className="text-sm font-medium text-gray-900">{ficha.usuario_creador}</p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Fecha</p>
-            <p className="text-sm font-medium text-gray-900">
-              {new Date(ficha.fecha_registro).toLocaleDateString('es')}
-            </p>
           </div>
         </div>
 
@@ -248,6 +247,16 @@ export default function FichaDetallePage() {
               Cancelar Revisión
             </button>
           )}
+
+          {/* Dev: diagnóstico de detectores */}
+          <Link
+            to={`/dev/anomalias?ficha=${id}`}
+            className="inline-flex items-center gap-1 px-4 py-2 border border-amber-300 text-amber-700 bg-amber-50 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors"
+            title="Solo desarrollo"
+          >
+            <FlaskConical size={14} />
+            Dev: Diagnóstico
+          </Link>
 
           {/* Exportación — solo Preliminar y Vigente */}
           {(estadoActual === 'Preliminar' || estadoActual === 'Vigente') && (
@@ -326,7 +335,6 @@ export default function FichaDetallePage() {
           idFicha={id}
           imagenes={ficha.caracteristicas?.imagenes}
           onActualizar={cargar}
-          soloLectura={true}
         />
       )}
       {tab === 'anomalias' && <TabAnomalias anomalias={anomalias} />}
@@ -454,50 +462,59 @@ function agruparCampos(datos) {
   const medidas = [];
   const otros = [];
   const procesados = new Set();
-
   const claves = Object.keys(datos);
 
+  // First pass: detect _valor keys → measurement rows
   for (const clave of claves) {
-    if (procesados.has(clave)) continue;
+    if (procesados.has(clave) || clave.endsWith('_nc')) {
+      procesados.add(clave);
+      continue;
+    }
+    if (!clave.endsWith('_valor')) continue;
 
-    // Detectar tríos: xxxx_valor, xxxx_tolerancia, xxxx_unidad
-    if (clave.endsWith('_valor')) {
-      const prefijo = clave.replace('_valor', '');
-      medidas.push({
-        nombre: prefijo,
-        valor: datos[`${prefijo}_valor`],
-        tolerancia: datos[`${prefijo}_tolerancia`],
-        unidad: datos[`${prefijo}_unidad`],
-      });
-      procesados.add(`${prefijo}_valor`);
+    const prefijo = clave.replace('_valor', '');
+    const val = datos[clave];
+
+    // skip if NC-flagged or empty
+    if (datos[`${prefijo}_nc`] === true || val == null || val === '') {
+      procesados.add(clave);
       procesados.add(`${prefijo}_tolerancia`);
       procesados.add(`${prefijo}_unidad`);
+      procesados.add(`${prefijo}_limite`);
+      continue;
     }
-    // Detectar pares microbiología: xxxx_valor, xxxx_limite
-    else if (clave.endsWith('_limite')) {
-      // ya procesado via _valor
-    }
+
+    const tolerancia = datos[`${prefijo}_tolerancia`] ?? null;
+    const limite = datos[`${prefijo}_limite`] ?? null;
+
+    medidas.push({
+      nombre: prefijo,
+      valor: val,
+      tolerancia: tolerancia ?? limite,
+      unidad: datos[`${prefijo}_unidad`] || (limite != null ? 'límite' : null),
+    });
+
+    procesados.add(`${prefijo}_valor`);
+    procesados.add(`${prefijo}_tolerancia`);
+    procesados.add(`${prefijo}_unidad`);
+    procesados.add(`${prefijo}_limite`);
   }
 
-  // Campos no procesados
+  // Second pass: remaining scalar fields → otros
   for (const clave of claves) {
-    if (!procesados.has(clave) && datos[clave] !== null && datos[clave] !== undefined) {
-      // Verificar si es un par valor/limite
-      if (clave.endsWith('_valor') && datos[clave.replace('_valor', '_limite')] !== undefined) {
-        const prefijo = clave.replace('_valor', '');
-        medidas.push({
-          nombre: prefijo,
-          valor: datos[`${prefijo}_valor`],
-          tolerancia: datos[`${prefijo}_limite`],
-          unidad: 'límite',
-        });
-        procesados.add(`${prefijo}_valor`);
-        procesados.add(`${prefijo}_limite`);
-      } else if (!clave.endsWith('_tolerancia') && !clave.endsWith('_unidad') && !clave.endsWith('_limite')) {
-        otros.push({ clave, valor: datos[clave] });
-        procesados.add(clave);
-      }
-    }
+    if (procesados.has(clave)) continue;
+    if (
+      clave.endsWith('_nc') ||
+      clave.endsWith('_tolerancia') ||
+      clave.endsWith('_unidad') ||
+      clave.endsWith('_limite')
+    ) continue;
+
+    const valor = datos[clave];
+    if (valor == null || valor === '' || typeof valor === 'boolean') continue;
+
+    otros.push({ clave, valor });
+    procesados.add(clave);
   }
 
   return { medidas, otros };

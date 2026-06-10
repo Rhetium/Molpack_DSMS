@@ -1,12 +1,3 @@
-"""
-Router de Auditoría — API de trazabilidad del Dataspace.
-
-Permite consultar:
-- Historial completo de un k-item específico
-- Actividad reciente del dataspace con filtros
-- Eventos por tipo de acción, usuario o k-type
-"""
-
 from typing import List
 from uuid import UUID
 
@@ -33,18 +24,16 @@ async def actividad_reciente(
     ktype: str | None = None,
     accion: str | None = None,
     usuario: str | None = None,
+    categoria: str | None = None,
     service: AuditoriaService = Depends(get_auditoria_service),
 ):
-    """
-    Actividad reciente del dataspace.
-    Filtros opcionales: ktype, accion, usuario.
-    """
     return await service.obtener_actividad_reciente(
         limite=limite,
         offset=offset,
         ktype=ktype,
         accion=accion,
         usuario=usuario,
+        categoria=categoria,
     )
 
 
@@ -54,10 +43,6 @@ async def historial_kitem(
     accion: str | None = None,
     service: AuditoriaService = Depends(get_auditoria_service),
 ):
-    """
-    Historial completo de un k-item: todas las acciones que lo afectaron,
-    en orden cronológico inverso (más reciente primero).
-    """
     return await service.obtener_historial(
         kitem_id=kitem_id,
         accion=accion,

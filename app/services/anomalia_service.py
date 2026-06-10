@@ -31,10 +31,12 @@ from app.schemas.anomalia import (
 )
 
 from app.core.anomalia_constant import (
+    ANOMALIA_RANGO_CATEGORIA,
     ANOMALIA_VALOR_ATIPICO,
     ANOMALIA_UNIDAD_INCONSISTENTE,
     ANOMALIA_CLASIFICACION_CRUZADA,
     ANOMALIA_DUPLICADO_SEMANTICO,
+    ANOMALIA_ML_MULTIVARIADO,
     SEVERIDAD_INFORMATIVA,
     SEVERIDAD_ADVERTENCIA,
     SEVERIDAD_CRITICA,
@@ -46,11 +48,16 @@ from app.core.anomalia_constant import (
     MIN_MUESTRAS_ESTADISTICAS,
     UMBRAL_DUPLICADO_SEMANTICO,
     UMBRAL_DUPLICADO_CRITICO,
+    UMBRAL_DUPLICADO_FICHA,
+    UMBRAL_DUPLICADO_FICHA_CRITICO,
     PORCENTAJE_UNIDAD_MAYORITARIA,
     UMBRAL_CLASIFICACION_CRUZADA,
     CAMPOS_CARACTERISTICAS,
     CAMPOS_CONTENIDO,
     CAMPOS_EMPAQUE,
+    ML_SCORE_CRITICO,
+    ML_SCORE_ADVERTENCIA,
+    RANGOS_CATEGORIA,
 )
 
 from app.core.dsms_constants import (
@@ -59,6 +66,7 @@ from app.core.dsms_constants import (
 )
 
 from app.services.semantic_search_service import BusquedaSemanticaService
+from app.services.ml_anomalia_service import MLAnomaliaService
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +75,7 @@ class AnomaliaService:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
         self.busqueda = BusquedaSemanticaService(db_session)
+        self.ml = MLAnomaliaService(db_session)
 
     # =========================================================
     # API PÚBLICA
@@ -99,10 +108,9 @@ class AnomaliaService:
         ficha = await self._obtener_ficha(id_ficha)
         material = await self._obtener_material(ficha.id_material_corporativo)
 
-        # Obtener fichas históricas del mismo tipo para comparación
+        # Fichas de la misma categoría como referencia estadística
         fichas_referencia = await self._obtener_fichas_referencia(
             categoria=material.categoria,
-            contenido=material.contenido,
             excluir_id=id_ficha,
         )
 
@@ -119,15 +127,21 @@ class AnomaliaService:
         )
 
         # --- Detector 3: Duplicados semánticos ---
+        # Se excluyen fichas del mismo material: es normal que compartan
+        # alta similitud; solo alerta si materiales distintos son casi idénticos.
         duplicados = await self._detectar_duplicados_semanticos(
             kitem_id=id_ficha,
             ktype=KTYPE_FICHA_TECNICA,
+            excluir_material_id=material.id_material_corporativo,
+            umbral=UMBRAL_DUPLICADO_FICHA,
+            umbral_critico=UMBRAL_DUPLICADO_FICHA_CRITICO,
         )
         anomalias.extend(duplicados)
 
         # --- Detector 4: Clasificación cruzada ---
         cruzadas = await self._detectar_clasificacion_cruzada(
             material=material,
+            ficha=ficha,
         )
         anomalias.extend(cruzadas)
 
@@ -137,6 +151,16 @@ class AnomaliaService:
             material=material,
         )
         anomalias.extend(perfil_cruzado)
+
+        # --- Detector 6: Isolation Forest (multivariado) ---
+        anomalias.extend(
+            self._detectar_ml_multivariado(ficha=ficha, material=material)
+        )
+
+        # --- Detector 7: Rangos dimensionales por categoría ---
+        anomalias.extend(
+            self._detectar_rango_categoria(ficha=ficha, material=material)
+        )
 
         # Persistir anomalías en el repositorio histórico
         for anomalia in anomalias:
@@ -281,6 +305,9 @@ class AnomaliaService:
                 valor = datos_ficha.get(campo_valor)
                 if valor is None:
                     continue
+                # Campo marcado como N/C por el usuario — excluir de cálculos
+                if datos_ficha.get(campo_valor.removesuffix("_valor") + "_nc"):
+                    continue
 
                 # Recopilar valores históricos del mismo campo
                 valores_ref = self._extraer_valores_campo(
@@ -389,6 +416,9 @@ class AnomaliaService:
                 unidad_actual = datos_ficha.get(campo_unidad)
                 if not unidad_actual:
                     continue
+                # Campo marcado como N/C — excluir de cálculos
+                if datos_ficha.get(campo_valor.removesuffix("_valor") + "_nc"):
+                    continue
 
                 # Recopilar unidades históricas
                 unidades_ref = self._extraer_valores_campo(
@@ -447,34 +477,50 @@ class AnomaliaService:
         self,
         kitem_id: UUID,
         ktype: str,
+        excluir_material_id: UUID | None = None,
+        umbral: float = UMBRAL_DUPLICADO_SEMANTICO,
+        umbral_critico: float = UMBRAL_DUPLICADO_CRITICO,
     ) -> list[AnomaliaDetectada]:
         """
-        Busca k-items semánticamente muy similares al actual
-        usando los embeddings de pgvector.
+        Busca k-items semánticamente muy similares al actual.
+
+        Para fichas técnicas se pasa excluir_material_id para ignorar
+        otras fichas del mismo material: es normal que compartan alta
+        similitud semántica al describir el mismo producto.
+        Solo se alerta si fichas de materiales DISTINTOS son casi idénticas.
         """
         anomalias = []
 
         try:
-            # Buscar k-items similares (excluyendo el actual)
-            resultados = await self.busqueda.buscar_similares(
+            resultados = await self.busqueda.buscar_similares_a_kitem(
                 kitem_id=kitem_id,
                 ktype=ktype,
-                limite=5,
-                umbral_similitud=UMBRAL_DUPLICADO_SEMANTICO,
+                limite=10,
+                umbral_similitud=umbral,
             )
 
             for resultado in resultados:
                 kitem_similar = resultado["kitem"]
                 similitud = resultado["similitud"]
 
-                # No reportar si es el mismo k-item
                 if kitem_similar.id == kitem_id:
                     continue
 
-                if similitud >= UMBRAL_DUPLICADO_CRITICO:
-                    severidad = SEVERIDAD_CRITICA
-                else:
-                    severidad = SEVERIDAD_ADVERTENCIA
+                # Para fichas: ignorar similares del mismo material corporativo
+                if excluir_material_id and ktype == KTYPE_FICHA_TECNICA:
+                    ficha_res = await self.db_session.execute(
+                        select(FichaTecnica).where(
+                            FichaTecnica.id_ficha == kitem_similar.id
+                        )
+                    )
+                    ficha_sim = ficha_res.scalars().first()
+                    if ficha_sim and ficha_sim.id_material_corporativo == excluir_material_id:
+                        continue
+
+                severidad = (
+                    SEVERIDAD_CRITICA if similitud >= umbral_critico
+                    else SEVERIDAD_ADVERTENCIA
+                )
 
                 anomalias.append(AnomaliaDetectada(
                     tipo_anomalia=ANOMALIA_DUPLICADO_SEMANTICO,
@@ -484,8 +530,8 @@ class AnomaliaService:
                     valor_esperado=None,
                     mensaje=(
                         f"Posible duplicado detectado: '{kitem_similar.nombre}' "
-                        f"tiene {similitud:.0%} de similitud. "
-                        f"¿Es el mismo registro?"
+                        f"tiene {similitud:.0%} de similitud con fichas de un "
+                        f"material diferente. ¿Es el mismo producto registrado dos veces?"
                     ),
                     detalles={
                         "kitem_similar_id": str(kitem_similar.id),
@@ -506,13 +552,17 @@ class AnomaliaService:
     async def _detectar_clasificacion_cruzada(
         self,
         material: MaterialComercial,
+        ficha: FichaTecnica | None = None,
     ) -> list[AnomaliaDetectada]:
         """
-        Detecta cuando un material parece pertenecer a otra categoría
-        basándose en la similitud semántica con materiales de otras categorías.
+        Detecta cuando un material parece pertenecer a otra categoría.
 
-        Ejemplo: Material declarado como "Bandeja" pero su perfil es
-        idéntico al de los "Separadores".
+        Combina dos señales independientes:
+        1. Semántica: similitud del nombre/contenido del material con
+           materiales de otras categorías.
+        2. Dimensional (si se pasa ficha): las dimensiones de la ficha
+           encajan dentro de los rangos de la categoría sugerida y no
+           en la declarada → evidencia más fuerte, severidad crítica.
         """
         anomalias = []
 
@@ -530,57 +580,107 @@ class AnomaliaService:
             )
 
             for resultado in resultados:
-                kitem_similar = resultado["kitem"]
-                similitud = resultado["similitud"]
-
-                # No reportar si es el mismo material
-                if kitem_similar.id == material.id_material_corporativo:
-                    continue
-
-                # Obtener la categoría del material similar
-                result = await self.db_session.execute(
-                    select(MaterialComercial).where(
-                        MaterialComercial.id_material_corporativo == kitem_similar.id
-                    )
+                anomalia = await self._evaluar_similar_clasificacion(
+                    resultado=resultado,
+                    material=material,
+                    ficha=ficha,
                 )
-                material_similar = result.scalars().first()
-                if not material_similar:
-                    continue
-
-                # Solo alertar si la categoría es diferente
-                if (
-                    material_similar.categoria
-                    and material.categoria
-                    and material_similar.categoria != material.categoria
-                    and similitud >= UMBRAL_CLASIFICACION_CRUZADA
-                ):
-                    anomalias.append(AnomaliaDetectada(
-                        tipo_anomalia=ANOMALIA_CLASIFICACION_CRUZADA,
-                        severidad=SEVERIDAD_ADVERTENCIA,
-                        campo_afectado="categoria",
-                        valor_detectado=material.categoria,
-                        valor_esperado=material_similar.categoria,
-                        mensaje=(
-                            f"El material '{material.nombre_corporativo}' "
-                            f"(categoría: {material.categoria}) tiene "
-                            f"{similitud:.0%} de similitud con "
-                            f"'{material_similar.nombre_corporativo}' "
-                            f"(categoría: {material_similar.categoria}). "
-                            f"¿La categoría es correcta?"
-                        ),
-                        detalles={
-                            "material_similar_id": str(material_similar.id_material_corporativo),
-                            "material_similar_nombre": material_similar.nombre_corporativo,
-                            "categoria_similar": material_similar.categoria,
-                            "categoria_actual": material.categoria,
-                            "similitud": similitud,
-                        },
-                    ))
+                if anomalia:
+                    anomalias.append(anomalia)
 
         except Exception as e:
             logger.warning(f"Error en detección de clasificación cruzada: {e}")
 
         return anomalias
+
+    async def _evaluar_similar_clasificacion(
+        self,
+        resultado: dict,
+        material: MaterialComercial,
+        ficha: FichaTecnica | None,
+    ) -> AnomaliaDetectada | None:
+        """Evalúa un único resultado de búsqueda para D4 y retorna anomalía o None."""
+        kitem_similar = resultado["kitem"]
+        similitud     = resultado["similitud"]
+
+        if kitem_similar.id == material.id_material_corporativo:
+            return None
+
+        mat_res = await self.db_session.execute(
+            select(MaterialComercial).where(
+                MaterialComercial.id_material_corporativo == kitem_similar.id
+            )
+        )
+        material_similar = mat_res.scalars().first()
+        if not material_similar:
+            return None
+
+        cat_sugerida = material_similar.categoria
+        cat_actual   = material.categoria
+        if not (cat_sugerida and cat_actual
+                and cat_sugerida != cat_actual
+                and similitud >= UMBRAL_CLASIFICACION_CRUZADA):
+            return None
+
+        evidencia_dim = (
+            ficha is not None
+            and self._tiene_evidencia_dimensional(ficha, cat_sugerida, cat_actual)
+        )
+        severidad = SEVERIDAD_CRITICA if evidencia_dim else SEVERIDAD_ADVERTENCIA
+        nota_dim  = (" Las dimensiones también encajan en la categoría sugerida."
+                     if evidencia_dim else "")
+
+        return AnomaliaDetectada(
+            tipo_anomalia=ANOMALIA_CLASIFICACION_CRUZADA,
+            severidad=severidad,
+            campo_afectado="categoria",
+            valor_detectado=cat_actual,
+            valor_esperado=cat_sugerida,
+            mensaje=(
+                f"El material '{material.nombre_corporativo}' "
+                f"(categoría: {cat_actual}) tiene "
+                f"{similitud:.0%} de similitud semántica con "
+                f"'{material_similar.nombre_corporativo}' "
+                f"(categoría: {cat_sugerida}).{nota_dim} "
+                f"¿La categoría es correcta?"
+            ),
+            detalles={
+                "material_similar_id": str(material_similar.id_material_corporativo),
+                "material_similar_nombre": material_similar.nombre_corporativo,
+                "categoria_sugerida": cat_sugerida,
+                "categoria_actual": cat_actual,
+                "similitud": similitud,
+                "evidencia_dimensional": evidencia_dim,
+            },
+        )
+
+    @staticmethod
+    def _tiene_evidencia_dimensional(
+        ficha: FichaTecnica,
+        cat_sugerida: str,
+        cat_actual: str,
+    ) -> bool:
+        """
+        Devuelve True si las dimensiones de la ficha encajan en cat_sugerida
+        pero no en cat_actual (ambas deben estar en RANGOS_CATEGORIA).
+        """
+        if cat_sugerida not in RANGOS_CATEGORIA or cat_actual not in RANGOS_CATEGORIA:
+            return False
+        caract = ficha.caracteristicas or {}
+        rangos_sug = RANGOS_CATEGORIA[cat_sugerida]
+        rangos_dec = RANGOS_CATEGORIA[cat_actual]
+
+        encaja = all(
+            isinstance(caract.get(c), (int, float)) and rmin <= caract[c] <= rmax
+            for c, (rmin, rmax, _) in rangos_sug.items()
+            if caract.get(c) is not None
+        )
+        fuera = any(
+            isinstance(caract.get(c), (int, float)) and not (rmin <= caract[c] <= rmax)
+            for c, (rmin, rmax, _) in rangos_dec.items()
+            if caract.get(c) is not None
+        )
+        return encaja and fuera
 
     # =========================================================
     # DETECTOR 5: PERFIL NUMÉRICO CRUZADO
@@ -679,6 +779,133 @@ class AnomaliaService:
 
         return anomalias
 
+    # =========================================================
+    # DETECTOR 6: ISOLATION FOREST (ML MULTIVARIADO)
+    # =========================================================
+
+    def _detectar_ml_multivariado(
+        self,
+        ficha: FichaTecnica,
+        material: MaterialComercial,
+    ) -> list[AnomaliaDetectada]:
+        """
+        Usa Isolation Forest para detectar anomalías en el vector numérico
+        combinado de la ficha. A diferencia del Detector 1 (por campo),
+        este analiza la combinación de todos los campos juntos.
+
+        Solo actúa si hay un modelo entrenado disponible.
+        No falla si no hay modelo — simplemente retorna vacío.
+        """
+        if not self.ml.modelo_disponible(material.categoria):
+            return []
+
+        resultado = self.ml.predecir(ficha, material.categoria)
+        if resultado is None or not resultado["es_anomalo"]:
+            return []
+
+        score = resultado["score"]
+        severidad = (
+            SEVERIDAD_CRITICA if score <= ML_SCORE_CRITICO
+            else SEVERIDAD_ADVERTENCIA
+        )
+
+        campos_resumen = resultado["campos_analizados"][:6]
+        if len(resultado["campos_analizados"]) > 6:
+            campos_resumen_str = ", ".join(campos_resumen) + "..."
+        else:
+            campos_resumen_str = ", ".join(campos_resumen)
+
+        return [AnomaliaDetectada(
+            tipo_anomalia=ANOMALIA_ML_MULTIVARIADO,
+            severidad=severidad,
+            campo_afectado=None,
+            valor_detectado=None,
+            valor_esperado=None,
+            mensaje=(
+                f"El perfil numérico combinado de esta ficha es inusual "
+                f"respecto a las {resultado['n_entrenamiento']} fichas de referencia "
+                f"(modelo: {resultado['modelo_usado']}, score: {score:.3f}). "
+                f"Campos analizados: {campos_resumen_str}."
+            ),
+            detalles={
+                "score_isolation_forest": round(score, 4),
+                "modelo_usado": resultado["modelo_usado"],
+                "n_fichas_entrenamiento": resultado["n_entrenamiento"],
+                "campos_analizados": resultado["campos_analizados"],
+                "umbral_advertencia": ML_SCORE_ADVERTENCIA,
+                "umbral_critico": ML_SCORE_CRITICO,
+            },
+        )]
+
+    # =========================================================
+    # DETECTOR 7: RANGOS DIMENSIONALES POR CATEGORÍA
+    # =========================================================
+
+    @staticmethod
+    def _anomalia_rango_campo(
+        campo: str,
+        valor: float,
+        minimo: float,
+        maximo: float,
+        unidad: str,
+        categoria: str,
+    ) -> AnomaliaDetectada:
+        """Construye una AnomaliaDetectada para un campo fuera de rango."""
+        nombre = campo.replace("dimensiones_", "").replace("_valor", "").replace("_", " ").title()
+        severidad = (
+            SEVERIDAD_CRITICA
+            if valor < minimo * 0.5 or valor > maximo * 2
+            else SEVERIDAD_ADVERTENCIA
+        )
+        return AnomaliaDetectada(
+            tipo_anomalia=ANOMALIA_RANGO_CATEGORIA,
+            severidad=severidad,
+            campo_afectado=f"caracteristicas.{campo}",
+            valor_detectado=f"{valor} {unidad}",
+            valor_esperado=f"{minimo} – {maximo} {unidad}",
+            mensaje=(
+                f"{nombre} ({valor} {unidad}) está fuera del rango típico "
+                f"para la categoría '{categoria}' ({minimo} – {maximo} {unidad}). "
+                f"¿El material está bien clasificado?"
+            ),
+            detalles={
+                "categoria": categoria,
+                "campo": campo,
+                "valor": valor,
+                "rango_min": minimo,
+                "rango_max": maximo,
+                "unidad": unidad,
+            },
+        )
+
+    def _detectar_rango_categoria(
+        self,
+        ficha: FichaTecnica,
+        material: MaterialComercial,
+    ) -> list[AnomaliaDetectada]:
+        """
+        Valida que las dimensiones clave de la ficha estén dentro de los
+        rangos esperados para su categoría. No requiere datos históricos.
+        Solo aplica a categorías definidas en RANGOS_CATEGORIA.
+        """
+        categoria = material.categoria
+        if not categoria or categoria not in RANGOS_CATEGORIA:
+            return []
+
+        caract = ficha.caracteristicas or {}
+        anomalias = []
+
+        for campo, (minimo, maximo, unidad) in RANGOS_CATEGORIA[categoria].items():
+            valor = caract.get(campo)
+            if valor is None or not isinstance(valor, (int, float)):
+                continue
+            if valor < minimo or valor > maximo:
+                anomalias.append(
+                    self._anomalia_rango_campo(campo, valor, minimo, maximo, unidad, categoria)
+                )
+
+        return anomalias
+
     async def _calcular_perfiles_categorias(
         self,
         excluir_ficha_id: UUID | None = None,
@@ -760,7 +987,9 @@ class AnomaliaService:
         for datos, campos in secciones:
             if not datos:
                 continue
-            for campo_valor, campo_unidad, nombre_legible in campos:
+            for campo_valor, *_ in campos:
+                if datos.get(campo_valor.removesuffix("_valor") + "_nc"):
+                    continue
                 valor = datos.get(campo_valor)
                 if valor is not None and isinstance(valor, (int, float)):
                     vector[campo_valor] = float(valor)
@@ -794,6 +1023,305 @@ class AnomaliaService:
         if n == 0:
             return None
         return (suma / n) ** 0.5
+
+    # =========================================================
+    # DEBUG (solo desarrollo — no exponer en producción)
+    # =========================================================
+
+    async def analizar_debug(self, id_ficha: UUID) -> dict:
+        """
+        Ejecuta cada detector de forma aislada y devuelve sus datos
+        intermedios para diagnóstico. No persiste anomalías.
+        """
+        ficha   = await self._obtener_ficha(id_ficha)
+        material = await self._obtener_material(ficha.id_material_corporativo)
+        fichas_ref = await self._obtener_fichas_referencia(
+            categoria=material.categoria,
+            excluir_id=id_ficha,
+        )
+
+        # Texto del embedding actual del KItem
+        from sqlalchemy import select as sa_select
+        from app.models.kitem import KItem
+        ki_res = await self.db_session.execute(
+            sa_select(KItem).where(KItem.id == id_ficha)
+        )
+        kitem = ki_res.scalars().first()
+        embedding_nombre = kitem.nombre if kitem else "—"
+        embedding_desc   = kitem.descripcion if kitem else "—"
+        tiene_embedding  = kitem.embedding is not None if kitem else False
+
+        detectores = []
+
+        # ── D1: Z-Score ──────────────────────────────────────────
+        d1: dict = {
+            "id": "D1", "nombre": "Valores Atípicos (Z-Score)",
+            "n_fichas_referencia": len(fichas_ref),
+            "minimo_requerido": MIN_MUESTRAS_ESTADISTICAS,
+            "activo": len(fichas_ref) >= MIN_MUESTRAS_ESTADISTICAS,
+            "campos": [],
+        }
+        secciones_d1 = [
+            (ficha.caracteristicas,           "caracteristicas",           CAMPOS_CARACTERISTICAS),
+            (ficha.caracteristicas_contenido, "caracteristicas_contenido", CAMPOS_CONTENIDO),
+            (ficha.empaque_estiba,            "empaque_estiba",            CAMPOS_EMPAQUE),
+        ]
+        if d1["activo"]:
+            for datos_f, nombre_sec, campos in secciones_d1:
+                if not datos_f:
+                    continue
+                for campo_valor, campo_unidad, nombre_leg in campos:
+                    valor = datos_f.get(campo_valor)
+                    if valor is None:
+                        continue
+                    if datos_f.get(campo_valor.removesuffix("_valor") + "_nc"):
+                        continue
+                    valores_ref = self._extraer_valores_campo(fichas_ref, nombre_sec, campo_valor)
+                    if len(valores_ref) < MIN_MUESTRAS_ESTADISTICAS:
+                        continue
+                    media = sum(valores_ref) / len(valores_ref)
+                    std   = (sum((v - media) ** 2 for v in valores_ref) / len(valores_ref)) ** 0.5
+                    zscore = abs(valor - media) / std if std > 0 else 0
+                    d1["campos"].append({
+                        "campo": f"{nombre_sec}.{campo_valor}",
+                        "nombre": nombre_leg,
+                        "valor": valor,
+                        "media_historica": round(media, 3),
+                        "std_historica": round(std, 3),
+                        "zscore": round(zscore, 3),
+                        "umbral_advertencia": ZSCORE_ADVERTENCIA,
+                        "umbral_critico": ZSCORE_CRITICO,
+                        "anomalia": zscore > ZSCORE_ADVERTENCIA,
+                        "severidad": "critica" if zscore > ZSCORE_CRITICO else ("advertencia" if zscore > ZSCORE_ADVERTENCIA else "ok"),
+                        "n_muestras": len(valores_ref),
+                        "valores_referencia": sorted(valores_ref)[:10],
+                    })
+        d1["anomalias_generadas"] = sum(1 for c in d1["campos"] if c.get("anomalia"))
+        detectores.append(d1)
+
+        # ── D2: Unidades inconsistentes ──────────────────────────
+        d2: dict = {
+            "id": "D2", "nombre": "Unidades Inconsistentes",
+            "n_fichas_referencia": len(fichas_ref),
+            "activo": True,
+            "campos": [],
+        }
+        for datos_f, nombre_sec, campos in secciones_d1:
+            if not datos_f:
+                continue
+            for campo_valor, campo_unidad, nombre_leg in campos:
+                unidad_actual = datos_f.get(campo_unidad)
+                if not unidad_actual:
+                    continue
+                if datos_f.get(campo_valor.removesuffix("_valor") + "_nc"):
+                    continue
+                unidades_ref = self._extraer_valores_campo(fichas_ref, nombre_sec, campo_unidad)
+                conteo: dict = {}
+                for u in unidades_ref:
+                    if u:
+                        conteo[u] = conteo.get(u, 0) + 1
+                total = sum(conteo.values())
+                if total == 0:
+                    continue
+                unidad_may = max(conteo, key=conteo.get)
+                pct = conteo[unidad_may] / total
+                anomalia = (unidad_actual != unidad_may and pct >= PORCENTAJE_UNIDAD_MAYORITARIA)
+                d2["campos"].append({
+                    "campo": f"{nombre_sec}.{campo_unidad}",
+                    "nombre": nombre_leg,
+                    "unidad_actual": unidad_actual,
+                    "unidad_mayoritaria": unidad_may,
+                    "porcentaje_mayoritaria": round(pct, 3),
+                    "umbral": PORCENTAJE_UNIDAD_MAYORITARIA,
+                    "distribucion": conteo,
+                    "n_muestras": total,
+                    "anomalia": anomalia,
+                })
+        d2["anomalias_generadas"] = sum(1 for c in d2["campos"] if c.get("anomalia"))
+        detectores.append(d2)
+
+        # ── D3: Duplicados semánticos ─────────────────────────────
+        d3: dict = {
+            "id": "D3", "nombre": "Duplicados Semánticos",
+            "embedding_kitem_nombre": embedding_nombre,
+            "embedding_kitem_descripcion": embedding_desc,
+            "tiene_embedding": tiene_embedding,
+            "nota": "Solo se alertan fichas de materiales DISTINTOS al analizado",
+            "umbral_advertencia": UMBRAL_DUPLICADO_FICHA,
+            "umbral_critico": UMBRAL_DUPLICADO_FICHA_CRITICO,
+            "similares": [],
+            "anomalias_generadas": 0,
+        }
+        try:
+            resultados_dup = await self.busqueda.buscar_similares_a_kitem(
+                kitem_id=id_ficha,
+                ktype=KTYPE_FICHA_TECNICA,
+                limite=10,
+                umbral_similitud=0.5,
+            )
+            for r in resultados_dup:
+                km = r["kitem"]
+                sim = r["similitud"]
+                # Obtener material de la ficha similar para indicar si es mismo material
+                ficha_res = await self.db_session.execute(
+                    sa_select(FichaTecnica).where(FichaTecnica.id_ficha == km.id)
+                )
+                ficha_sim = ficha_res.scalars().first()
+                mismo_material = (
+                    ficha_sim is not None
+                    and ficha_sim.id_material_corporativo == material.id_material_corporativo
+                )
+                es_duplicado = not mismo_material and sim >= UMBRAL_DUPLICADO_FICHA
+                d3["similares"].append({
+                    "id": str(km.id),
+                    "nombre": km.nombre,
+                    "similitud": sim,
+                    "mismo_material": mismo_material,
+                    "ignorado_por_mismo_material": mismo_material,
+                    "es_duplicado": es_duplicado,
+                    "severidad": (
+                        "ignorado" if mismo_material
+                        else "critica" if sim >= UMBRAL_DUPLICADO_FICHA_CRITICO
+                        else "advertencia" if sim >= UMBRAL_DUPLICADO_FICHA
+                        else "ok"
+                    ),
+                })
+            d3["anomalias_generadas"] = sum(1 for s in d3["similares"] if s["es_duplicado"])
+        except Exception as e:
+            d3["error"] = str(e)
+        detectores.append(d3)
+
+        # ── D4: Clasificación cruzada ─────────────────────────────
+        d4: dict = {
+            "id": "D4", "nombre": "Clasificación Cruzada",
+            "material_analizado": material.nombre_corporativo,
+            "categoria_declarada": material.categoria,
+            "umbral": UMBRAL_CLASIFICACION_CRUZADA,
+            "materiales_similares": [],
+            "anomalias_generadas": 0,
+        }
+        try:
+            texto_mat = f"{material.nombre_corporativo} {material.contenido or ''} {material.material_base or ''}"
+            resultados_mat = await self.busqueda.buscar_por_texto(
+                texto_consulta=texto_mat,
+                ktype=KTYPE_MATERIAL_COMERCIAL,
+                limite=10,
+                umbral_similitud=0.5,
+            )
+            for r in resultados_mat:
+                km = r["kitem"]
+                sim = r["similitud"]
+                if km.id == material.id_material_corporativo:
+                    continue
+                mat_res = await self.db_session.execute(
+                    sa_select(MaterialComercial).where(MaterialComercial.id_material_corporativo == km.id)
+                )
+                mat_sim = mat_res.scalars().first()
+                cat_sim = mat_sim.categoria if mat_sim else "?"
+                cruzado = (cat_sim != material.categoria and sim >= UMBRAL_CLASIFICACION_CRUZADA)
+                d4["materiales_similares"].append({
+                    "id": str(km.id),
+                    "nombre": km.nombre,
+                    "categoria": cat_sim,
+                    "similitud": sim,
+                    "categoria_diferente": cat_sim != material.categoria,
+                    "es_clasificacion_cruzada": cruzado,
+                })
+            d4["anomalias_generadas"] = sum(1 for m in d4["materiales_similares"] if m["es_clasificacion_cruzada"])
+        except Exception as e:
+            d4["error"] = str(e)
+        detectores.append(d4)
+
+        # ── D5: Perfil numérico cruzado ───────────────────────────
+        d5: dict = {
+            "id": "D5", "nombre": "Perfil Numérico Cruzado",
+            "categoria_declarada": material.categoria,
+            "vector_ficha": {},
+            "perfiles_categorias": {},
+            "distancias": {},
+            "ranking": [],
+            "anomalias_generadas": 0,
+        }
+        try:
+            perfiles = await self._calcular_perfiles_categorias(excluir_ficha_id=id_ficha)
+            vector_f = self._extraer_vector_numerico(ficha)
+            d5["vector_ficha"] = {k: round(v, 3) for k, v in vector_f.items()}
+            d5["n_campos_vector"] = len(vector_f)
+
+            for cat, perfil in perfiles.items():
+                d5["perfiles_categorias"][cat] = {
+                    "n_muestras": perfil["n_muestras"],
+                    "n_campos": len(perfil.get("centroide", {})),
+                }
+                dist = self._distancia_euclidiana_normalizada(vector_f, perfil["centroide"], perfil["std"])
+                if dist is not None:
+                    d5["distancias"][cat] = round(dist, 4)
+
+            if d5["distancias"]:
+                ranking = sorted(d5["distancias"].items(), key=lambda x: x[1])
+                d5["ranking"] = [{"categoria": c, "distancia": d} for c, d in ranking]
+                cat_mas_cercana = ranking[0][0]
+                dist_declarada = d5["distancias"].get(material.categoria)
+                dist_cercana   = ranking[0][1]
+                if cat_mas_cercana != material.categoria and dist_declarada:
+                    ratio = dist_cercana / dist_declarada
+                    d5["ratio"] = round(ratio, 4)
+                    d5["categoria_sugerida"] = cat_mas_cercana
+                    d5["anomalias_generadas"] = 1 if ratio < 0.7 else 0
+                    d5["umbral_advertencia"] = 0.7
+                    d5["umbral_critico"] = 0.4
+        except Exception as e:
+            d5["error"] = str(e)
+        detectores.append(d5)
+
+        # ── D6: Isolation Forest ──────────────────────────────────
+        d6: dict = {
+            "id": "D6", "nombre": "Isolation Forest (ML Multivariado)",
+            "modelo_categoria_disponible": self.ml.modelo_disponible(material.categoria),
+            "modelo_global_disponible": self.ml.modelo_disponible("global"),
+            "categoria": material.categoria,
+            "anomalias_generadas": 0,
+        }
+        try:
+            resultado_ml = self.ml.predecir(ficha, material.categoria)
+            if resultado_ml:
+                d6["score"] = round(resultado_ml["score"], 4)
+                d6["es_anomalo"] = resultado_ml["es_anomalo"]
+                d6["modelo_usado"] = resultado_ml["modelo_usado"]
+                d6["n_fichas_entrenamiento"] = resultado_ml["n_entrenamiento"]
+                d6["campos_analizados"] = resultado_ml["campos_analizados"]
+                d6["umbral_advertencia"] = ML_SCORE_ADVERTENCIA
+                d6["umbral_critico"] = ML_SCORE_CRITICO
+                d6["anomalias_generadas"] = 1 if resultado_ml["es_anomalo"] else 0
+            else:
+                d6["razon_inactivo"] = "Modelo no disponible o sin datos suficientes"
+        except Exception as e:
+            d6["error"] = str(e)
+        detectores.append(d6)
+
+        return {
+            "ficha_id": str(id_ficha),
+            "codigo_ficha_local": ficha.codigo_ficha_local,
+            "estado_ficha": ficha.estado_ficha,
+            "material": {
+                "id": str(material.id_material_corporativo),
+                "nombre": material.nombre_corporativo,
+                "categoria": material.categoria,
+                "contenido": material.contenido,
+                "material_base": material.material_base,
+            },
+            "n_fichas_referencia_global": len(fichas_ref),
+            "embedding": {
+                "nombre_kitem": embedding_nombre,
+                "descripcion_kitem": embedding_desc,
+                "tiene_embedding": tiene_embedding,
+            },
+            "detectores": detectores,
+            "resumen": {
+                "total_anomalias_potenciales": sum(d.get("anomalias_generadas", 0) for d in detectores),
+                "detectores_activos": sum(1 for d in detectores if d.get("activo", True) and not d.get("error")),
+            },
+        }
 
     # =========================================================
     # REPOSITORIO HISTÓRICO
@@ -912,12 +1440,18 @@ class AnomaliaService:
     async def _obtener_fichas_referencia(
         self,
         categoria: str | None,
-        contenido: str | None,
         excluir_id: UUID | None = None,
     ) -> list[FichaTecnica]:
         """
-        Obtiene fichas del mismo tipo de material (categoría + contenido)
-        para usar como referencia estadística.
+        Obtiene fichas de la misma CATEGORÍA para usarlas como referencia
+        estadística en D1, D2 y D5.
+
+        Se agrupa solo por categoría (no por contenido) para maximizar el
+        número de muestras. Con pocas fichas en catálogo, filtrar también
+        por contenido deja grupos de 1-2 fichas, insuficientes para
+        cualquier cálculo estadístico.
+        A medida que crezca el catálogo, puede considerarse reintroducir
+        el filtro por contenido para afinar la comparación.
         """
         query = (
             select(FichaTecnica)
@@ -931,8 +1465,6 @@ class AnomaliaService:
         conditions = []
         if categoria:
             conditions.append(MaterialComercial.categoria == categoria)
-        if contenido:
-            conditions.append(MaterialComercial.contenido == contenido)
         if excluir_id:
             conditions.append(FichaTecnica.id_ficha != excluir_id)
 

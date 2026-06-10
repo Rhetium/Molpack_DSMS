@@ -7,16 +7,16 @@ class MaterialCreateSchema(BaseModel):
     nombre_corporativo: str
     contenido: str | None = None
     categoria: str | None = None
+    sector: str | None = None
+    caracteristica: str | None = None
     material_base: str | None = None
     capacidad_nominal: str | None = None
-    color_base: str | None = None
     tipo_producto: str | None = None
     estado_material: str
-    usuario_creador: str  # NUEVO: necesario para crear el kitem base
+    usuario_creador: str
 
 
 class AnomaliaResumen(BaseModel):
-    """Resumen de una anomalía detectada."""
     tipo_anomalia: str
     severidad: str
     campo_afectado: str | None = None
@@ -28,9 +28,10 @@ class MaterialSchema(BaseModel):
     nombre_corporativo: str
     contenido: str | None = None
     categoria: str | None = None
+    sector: str | None = None
+    caracteristica: str | None = None
     material_base: str | None = None
     capacidad_nominal: str | None = None
-    color_base: str | None = None
     tipo_producto: str | None = None
     estado_material: str
     fecha_creacion: datetime
@@ -47,24 +48,27 @@ class MaterialLiteSchema(BaseModel):
     nombre_corporativo: str
     contenido: str | None = None
     categoria: str | None = None
+    sector: str | None = None
     tipo_producto: str | None = None
     estado_material: str
     capacidad_nominal: str | None = None
-    color_base: str | None = None
 
     class Config:
         from_attributes = True
+
 
 class MaterialUpdateSchema(BaseModel):
     nombre_corporativo: str | None = None
     contenido: str | None = None
     categoria: str | None = None
+    sector: str | None = None
+    caracteristica: str | None = None
     material_base: str | None = None
     capacidad_nominal: str | None = None
-    color_base: str | None = None
     tipo_producto: str | None = None
     estado_material: str | None = None
     usuario: str
+
 
 class CambioEstadoMaterialRequest(BaseModel):
     estado_material: str

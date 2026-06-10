@@ -1,14 +1,3 @@
-"""
-Router del Grafo de Conocimiento (Knowledge Graph).
-
-Expone la API para explorar y gestionar el dataspace:
-- Listar y consultar k-items
-- Crear y consultar relaciones semánticas
-- Explorar el grafo de un k-item (sus conexiones)
-
-Equivale a la funcionalidad de "Data Exploration" del paper DSMS (Sección 2.3.4).
-"""
-
 from typing import List
 from uuid import UUID
 
@@ -33,17 +22,12 @@ def get_kitem_service(
     return KItemService(db_session=session)
 
 
-# ========================
-# K-Items
-# ========================
-
 @router.get("/kitems", response_model=List[KItemSchema])
 async def listar_kitems(
     ktype: str | None = None,
     estado: str | None = None,
     service: KItemService = Depends(get_kitem_service),
 ):
-    """Lista todos los k-items del dataspace con filtros opcionales."""
     return await service.listar_kitems(ktype=ktype, estado=estado)
 
 
@@ -52,7 +36,6 @@ async def obtener_kitem(
     kitem_id: UUID,
     service: KItemService = Depends(get_kitem_service),
 ):
-    """Obtiene un k-item por su UUID."""
     return await service.obtener_kitem(kitem_id)
 
 
@@ -61,24 +44,14 @@ async def obtener_grafo_kitem(
     kitem_id: UUID,
     service: KItemService = Depends(get_kitem_service),
 ):
-    """
-    Devuelve el grafo de un k-item: el nodo central con todas sus
-    relaciones y los k-items conectados.
-    Implementa la exploración de grafo del DSMS.
-    """
     return await service.obtener_grafo_kitem(kitem_id)
 
-
-# ========================
-# Relaciones Semánticas
-# ========================
 
 @router.post("/relaciones", response_model=KItemRelacionSchema, status_code=201)
 async def crear_relacion(
     data: KItemRelacionCreateSchema,
     service: KItemService = Depends(get_kitem_service),
 ):
-    """Crea una relación semántica entre dos k-items del dataspace."""
     return await service.crear_relacion(data)
 
 
@@ -92,17 +65,11 @@ async def obtener_relaciones(
     direccion: str = "ambas",
     service: KItemService = Depends(get_kitem_service),
 ):
-    """
-    Obtiene las relaciones de un k-item.
-    - direccion: 'salientes', 'entrantes', o 'ambas'
-    - tipo_relacion: filtrar por tipo (ej: 'pertenece_a', 'se_deriva_de')
-    """
     relaciones = await service.obtener_relaciones_de_kitem(
         kitem_id=kitem_id,
         tipo_relacion=tipo_relacion,
         direccion=direccion,
     )
-    # Convertir a schema con detalle
     resultado = []
     for rel in relaciones:
         resultado.append(
@@ -124,5 +91,4 @@ async def eliminar_relacion(
     relacion_id: UUID,
     service: KItemService = Depends(get_kitem_service),
 ):
-    """Elimina una relación semántica del grafo."""
     await service.eliminar_relacion(relacion_id)

@@ -1,19 +1,11 @@
-"""
-Constantes del módulo de detección de anomalías.
-
-Centraliza los tipos, severidades, umbrales y configuraciones
-del sistema de detección de anomalías del DSMS.
-"""
-
-# ========================
-# TIPOS DE ANOMALÍA
-# ========================
+ANOMALIA_RANGO_CATEGORIA = "rango_categoria"
 ANOMALIA_VALOR_ATIPICO = "valor_atipico"
 ANOMALIA_UNIDAD_INCONSISTENTE = "unidad_inconsistente"
 ANOMALIA_CLASIFICACION_CRUZADA = "clasificacion_cruzada"
 ANOMALIA_DUPLICADO_SEMANTICO = "duplicado_semantico"
 ANOMALIA_ESTRUCTURA_INVALIDA = "estructura_invalida"
 ANOMALIA_PERFIL_CRUZADO = "perfil_numerico_cruzado"
+ANOMALIA_ML_MULTIVARIADO = "atipico_multivariado"
 
 TIPOS_ANOMALIA = {
     ANOMALIA_VALOR_ATIPICO,
@@ -22,18 +14,13 @@ TIPOS_ANOMALIA = {
     ANOMALIA_DUPLICADO_SEMANTICO,
     ANOMALIA_ESTRUCTURA_INVALIDA,
     ANOMALIA_PERFIL_CRUZADO,
+    ANOMALIA_ML_MULTIVARIADO,
 }
 
-# ========================
-# SEVERIDADES
-# ========================
 SEVERIDAD_INFORMATIVA = "informativa"
 SEVERIDAD_ADVERTENCIA = "advertencia"
 SEVERIDAD_CRITICA = "critica"
 
-# ========================
-# ESTADOS DE RESOLUCIÓN
-# ========================
 ESTADO_ANOMALIA_PENDIENTE = "pendiente"
 ESTADO_ANOMALIA_ACEPTADA = "aceptada"
 ESTADO_ANOMALIA_DESCARTADA = "descartada"
@@ -45,41 +32,37 @@ ESTADOS_RESOLUCION_VALIDOS = {
     ESTADO_ANOMALIA_CORREGIDA,
 }
 
-# ========================
-# CONTEXTOS DE DETECCIÓN
-# ========================
 CONTEXTO_CREACION = "creacion"
 CONTEXTO_ACTUALIZACION = "actualizacion"
 CONTEXTO_BATCH = "analisis_batch"
 
-# ========================
-# UMBRALES DE DETECCIÓN
-# ========================
-
-# Z-score: cuántas desviaciones estándar se considera anómalo
-# Para fichas con pocas muestras (<10), se usa rango intercuartílico
+# z-score: umbral en desviaciones estándar
 ZSCORE_ADVERTENCIA = 2.0   # > 2σ → advertencia
 ZSCORE_CRITICO = 3.0       # > 3σ → crítico
 
-# Mínimo de muestras para usar estadísticas
 MIN_MUESTRAS_ESTADISTICAS = 3
 
-# Duplicado semántico: umbral de similitud coseno
-UMBRAL_DUPLICADO_SEMANTICO = 0.90   # > 0.90 → posible duplicado
-UMBRAL_DUPLICADO_CRITICO = 0.95     # > 0.95 → casi seguro duplicado
+MIN_MUESTRAS_ML = 5        # mínimo de fichas por categoría para modelo propio
+MODELO_GLOBAL = "global"
 
-# Clasificación cruzada: umbral para detectar que un material
-# "parece" pertenecer a otra categoría
+# Isolation Forest: score más negativo = más anómalo
+ML_SCORE_CRITICO = -0.15
+ML_SCORE_ADVERTENCIA = -0.05
+
+UMBRAL_DUPLICADO_SEMANTICO = 0.90   # > 0.90 → posible duplicado (materiales)
+UMBRAL_DUPLICADO_CRITICO   = 0.95   # > 0.95 → casi seguro duplicado
+
+# Para fichas: umbral más alto porque fichas del mismo producto son
+# legítimamente similares; solo alertar si son prácticamente idénticas
+# y además pertenecen a materiales diferentes.
+UMBRAL_DUPLICADO_FICHA     = 0.95
+UMBRAL_DUPLICADO_FICHA_CRITICO = 0.98
+
 UMBRAL_CLASIFICACION_CRUZADA = 0.85
 
-# Unidad inconsistente: porcentaje mínimo de fichas que usan
-# la misma unidad para considerar una unidad como "mayoritaria"
-PORCENTAJE_UNIDAD_MAYORITARIA = 0.70  # 70% usa "cm" → "cm" es la norma
+# % mínimo de fichas que usan la misma unidad para considerarla mayoritaria
+PORCENTAJE_UNIDAD_MAYORITARIA = 0.70
 
-# ========================
-# CAMPOS NUMÉRICOS ANALIZABLES
-# ========================
-# Campos de fichas técnicas que pueden tener valores atípicos
 # Formato: (campo_valor, campo_unidad, nombre_legible)
 
 CAMPOS_CARACTERISTICAS = [
@@ -92,6 +75,7 @@ CAMPOS_CARACTERISTICAS = [
     ("deflexion_interna_valor", "deflexion_interna_unidad", "Deflexión interna"),
     ("deflexion_externa_valor", "deflexion_externa_unidad", "Deflexión externa"),
     ("ruptura_valor", "ruptura_unidad", "Ruptura"),
+    ("resistencia_valor", "resistencia_unidad", "Resistencia"),
 ]
 
 CAMPOS_CONTENIDO = [
@@ -99,9 +83,52 @@ CAMPOS_CONTENIDO = [
     ("diametro_alveolo_valor", "diametro_alveolo_unidad", "Diámetro alvéolo"),
     ("profundidad_cavidad_valor", "profundidad_cavidad_unidad", "Profundidad cavidad"),
     ("diametro_cavidad_valor", "diametro_cavidad_unidad", "Diámetro cavidad"),
+    ("ancho_cavidad_valor", "ancho_cavidad_unidad", "Ancho cavidad"),
+    ("largo_cavidad_valor", "largo_cavidad_unidad", "Largo cavidad"),
 ]
 
 CAMPOS_EMPAQUE = [
     ("alto_empaque_valor", "alto_empaque_unidad", "Alto empaque"),
     ("peso_empaque_valor", "peso_empaque_unidad", "Peso empaque"),
 ]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rangos dimensionales esperados por categoría — Detector D7
+#
+# Derivados de las fichas reales del catálogo Molpack con un margen del ~30%
+# para tolerar variantes futuras sin disparar falsos positivos.
+#
+# Formato: { campo: (min, max, unidad_esperada) }
+# Solo se validan campos que tienen unidad mm o g; se omiten intencional-
+# mente campos que varían mucho entre variantes de la misma categoría.
+# ──────────────────────────────────────────────────────────────────────────────
+RANGOS_CATEGORIA: dict[str, dict[str, tuple]] = {
+    "Separador": {
+        # Nominales: 298 × 298 × 50 mm, peso 60-67 g
+        "dimensiones_largo_valor": (200, 370, "mm"),
+        "dimensiones_ancho_valor": (200, 370, "mm"),
+        "dimensiones_alto_valor":  (30,  70,  "mm"),
+        "peso_valor":              (35, 110,  "g"),
+    },
+    "Portavasos": {
+        # PV4: 223×220×50 mm / PV2: 203×117×52 mm, peso 34-36 g
+        "dimensiones_largo_valor": (140, 290, "mm"),
+        "dimensiones_alto_valor":  (30,  75,  "mm"),
+        "peso_valor":              (15,  65,  "g"),
+    },
+    "Estuche": {
+        # 1x12: 300×250×50 / 1x15: 350×250×70 mm, peso 58-60 g
+        "dimensiones_largo_valor": (220, 450, "mm"),
+        "dimensiones_ancho_valor": (170, 340, "mm"),
+        "dimensiones_alto_valor":  (30,  95,  "mm"),
+        "peso_valor":              (35,  95,  "g"),
+    },
+    "Bandeja": {
+        # 2B: 210×155×15 / 4G: 260×155×30 mm, peso 22-35 g
+        # El alto pequeño es el indicador más discriminante de esta categoría
+        "dimensiones_largo_valor": (140, 350, "mm"),
+        "dimensiones_ancho_valor": (100, 230, "mm"),
+        "dimensiones_alto_valor":  (3,   50,  "mm"),   # ← bajo: diferencia clave
+        "peso_valor":              (8,   60,  "g"),
+    },
+}
