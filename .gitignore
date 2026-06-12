@@ -1,0 +1,27 @@
+# Entornos virtuales de Python
+.venv/
+venv/
+env/
+
+# Bytecode de Python
+__pycache__/
+*.py[cod]
+
+# Secretos y configuración local — NUNCA commitear credenciales
+.env
+.env.*
+!.env.example
+
+# Modelos ML entrenados (se regeneran con POST /anomalias/entrenar)
+app/ml_models/*.pkl
+app/ml_models/*.joblib
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Editor / SO
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
