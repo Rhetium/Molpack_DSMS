@@ -110,7 +110,7 @@ RANGOS_CATEGORIA: dict[str, dict[str, tuple]] = {
         "dimensiones_alto_valor":  (30,  70,  "mm"),
         "peso_valor":              (35, 110,  "g"),
     },
-    "Portavasos": {
+    "Porta vasos": {
         # PV4: 223×220×50 mm / PV2: 203×117×52 mm, peso 34-36 g
         "dimensiones_largo_valor": (140, 290, "mm"),
         "dimensiones_alto_valor":  (30,  75,  "mm"),
@@ -132,3 +132,26 @@ RANGOS_CATEGORIA: dict[str, dict[str, tuple]] = {
         "peso_valor":              (8,   60,  "g"),
     },
 }
+
+
+def _normalizar_categoria(categoria: str) -> str:
+    """Clave de comparación de categorías: minúsculas y sin espacios."""
+    return "".join((categoria or "").lower().split())
+
+
+_RANGOS_POR_CATEGORIA_NORM = {
+    _normalizar_categoria(cat): rangos for cat, rangos in RANGOS_CATEGORIA.items()
+}
+
+
+def rangos_para_categoria(categoria: str | None) -> dict | None:
+    """
+    Rangos D7 de una categoría, tolerante a mayúsculas y espacios:
+    'Porta vasos', 'Portavasos' y 'PORTA VASOS' son la misma categoría.
+    El catálogo ya registra varias grafías, por lo que un lookup exacto
+    desactivaba silenciosamente el detector. Devuelve None si la
+    categoría no tiene rangos definidos.
+    """
+    if not categoria:
+        return None
+    return _RANGOS_POR_CATEGORIA_NORM.get(_normalizar_categoria(categoria))

@@ -57,7 +57,7 @@ from app.core.anomalia_constant import (
     CAMPOS_EMPAQUE,
     ML_SCORE_CRITICO,
     ML_SCORE_ADVERTENCIA,
-    RANGOS_CATEGORIA,
+    rangos_para_categoria,
 )
 
 from app.core.dsms_constants import (
@@ -662,13 +662,13 @@ class AnomaliaService:
     ) -> bool:
         """
         Devuelve True si las dimensiones de la ficha encajan en cat_sugerida
-        pero no en cat_actual (ambas deben estar en RANGOS_CATEGORIA).
+        pero no en cat_actual (ambas deben tener rangos definidos).
         """
-        if cat_sugerida not in RANGOS_CATEGORIA or cat_actual not in RANGOS_CATEGORIA:
+        rangos_sug = rangos_para_categoria(cat_sugerida)
+        rangos_dec = rangos_para_categoria(cat_actual)
+        if rangos_sug is None or rangos_dec is None:
             return False
         caract = ficha.caracteristicas or {}
-        rangos_sug = RANGOS_CATEGORIA[cat_sugerida]
-        rangos_dec = RANGOS_CATEGORIA[cat_actual]
 
         encaja = all(
             isinstance(caract.get(c), (int, float)) and rmin <= caract[c] <= rmax
@@ -889,13 +889,14 @@ class AnomaliaService:
         Solo aplica a categorías definidas en RANGOS_CATEGORIA.
         """
         categoria = material.categoria
-        if not categoria or categoria not in RANGOS_CATEGORIA:
+        rangos = rangos_para_categoria(categoria)
+        if not rangos:
             return []
 
         caract = ficha.caracteristicas or {}
         anomalias = []
 
-        for campo, (minimo, maximo, unidad) in RANGOS_CATEGORIA[categoria].items():
+        for campo, (minimo, maximo, unidad) in rangos.items():
             valor = caract.get(campo)
             if valor is None or not isinstance(valor, (int, float)):
                 continue

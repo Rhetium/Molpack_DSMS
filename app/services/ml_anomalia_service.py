@@ -292,7 +292,9 @@ class MLAnomaliaService:
         score = float(pipeline.decision_function(x_filtrado)[0])
 
         return {
-            "es_anomalo": prediccion == -1,
+            # bool nativo: np.bool_ no es subclase de bool y revienta la
+            # serialización JSON de FastAPI (endpoint /anomalias/debug)
+            "es_anomalo": bool(prediccion == -1),
             "score": score,
             "modelo_usado": modelo_usado,
             "campos_analizados": datos_modelo["campos_usados"],

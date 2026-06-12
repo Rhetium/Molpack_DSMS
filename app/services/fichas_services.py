@@ -319,11 +319,14 @@ class FichaService:
         codigo_local = ficha_data.codigo_material_local or ""
         pais_iso = nombre_pais_a_iso(ficha_data.pais) if ficha_data.pais else ""
 
-        # Solo validamos unicidad de código cuando ya existe uno real
+        # Solo validamos unicidad de código cuando ya existe uno real.
+        # Consultar con el valor tal como se almacena ('' si no hay país) —
+        # con "XX" el check nunca encajaba para borradores sin país y
+        # permitía códigos duplicados.
         if codigo_local:
             await self._validar_codigo_material_local_unico(
                 id_material=ficha_data.id_material_corporativo,
-                pais=pais_iso or "XX",
+                pais=pais_iso,
                 codigo_material_local=codigo_local,
             )
 
@@ -514,11 +517,12 @@ class FichaService:
             },
         )
 
-        await self.db_session.commit()
-        await self.db_session.refresh(ficha)
-
         # Al pasar a Preliminar: actualizar KItem con info rica, re-generar
         # embedding con datos reales de la ficha y ejecutar detectores.
+        # Se hace ANTES del commit para que un fallo revierta la transición
+        # completa, en vez de dejar una ficha Preliminar sin embedding ni
+        # análisis de anomalías (que luego podría publicarse a Vigente sin
+        # ninguna revisión).
         if nuevo_estado == ESTADO_PRELIMINAR:
             try:
                 material = await self._validar_material(ficha.id_material_corporativo)
@@ -574,12 +578,25 @@ class FichaService:
                     usuario=usuario_actualizacion,
                     contexto="creacion",
                 )
-                await self.db_session.commit()
-            except Exception:
-                logger.warning(
-                    f"Error al analizar anomalías al pasar a Preliminar: {ficha.id_ficha}",
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.error(
+                    f"Error al enriquecer/analizar la ficha {ficha.id_ficha} "
+                    "al pasar a Preliminar; la transición fue revertida.",
                     exc_info=True,
                 )
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "No se pudo completar el análisis de la ficha al pasar "
+                        "a Preliminar; la transición fue revertida. "
+                        "Intenta nuevamente o contacta al administrador."
+                    ),
+                ) from exc
+
+        await self.db_session.commit()
+        await self.db_session.refresh(ficha)
 
         # Disparar reentrenamiento ML en background cuando una ficha se publica
         if nuevo_estado == ESTADO_VIGENTE and not _entrenamiento_en_cooldown():
@@ -633,6 +650,7 @@ class FichaService:
             id_material_corporativo=ficha_origen.id_material_corporativo,
             codigo_ficha_local=codigo_ficha_local,
             codigo_material_local=ficha_origen.codigo_material_local,
+            nombre_local_material=ficha_origen.nombre_local_material,
             codigo_version=nueva_version,
             usuario_creador=usuario,
             usuario_ultima_actualizacion=usuario,
@@ -700,6 +718,15 @@ class FichaService:
         "manejo_disposicion",
     }
 
+    # Columnas escalares de la ficha editables vía PATCH (además de las
+    # secciones JSONB). Se aplican con el mismo mecanismo setattr/auditoría.
+    # codigo_material_local y pais solo se aceptan en estado Borrador.
+    CAMPOS_ESCALARES_EDITABLES = {
+        "nombre_local_material",
+        "codigo_material_local",
+        "pais",
+    }
+
     # -------------------------
     # Modificación de fichas
     # -------------------------
@@ -764,10 +791,41 @@ class FichaService:
         Modifica directamente las secciones JSONB de una ficha
         en estado Borrador o Preliminar. Misma versión.
         """
+        # Normalizar país a ISO-2 (acepta código o nombre legible).
+        nuevo_pais = datos_actualizacion.get("pais")
+        if nuevo_pais:
+            nuevo_pais = nombre_pais_a_iso(nuevo_pais)
+            datos_actualizacion["pais"] = nuevo_pais
+
+        # Código local y país son identidad de la ficha: solo pueden
+        # completarse/corregirse mientras sigue en Borrador.
+        nuevo_codigo = datos_actualizacion.get("codigo_material_local")
+        cambia_codigo = bool(nuevo_codigo) and nuevo_codigo != ficha.codigo_material_local
+        cambia_pais = bool(nuevo_pais) and nuevo_pais != ficha.pais
+        if cambia_codigo or cambia_pais:
+            if ficha.estado_ficha != ESTADO_BORRADOR:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "El código de material local y el país solo pueden "
+                        "modificarse en estado Borrador."
+                    ),
+                )
+            codigo_final = nuevo_codigo or ficha.codigo_material_local
+            if codigo_final:
+                await self._validar_codigo_material_local_unico(
+                    id_material=ficha.id_material_corporativo,
+                    pais=(nuevo_pais or ficha.pais) or "",
+                    codigo_material_local=codigo_final,
+                )
+
         cambios = {}
 
         for campo, valor in datos_actualizacion.items():
-            if campo not in self.SECCIONES_EDITABLES:
+            if (
+                campo not in self.SECCIONES_EDITABLES
+                and campo not in self.CAMPOS_ESCALARES_EDITABLES
+            ):
                 continue
             if valor is None:
                 continue
@@ -793,10 +851,10 @@ class FichaService:
         ficha.fecha_actualizacion = datetime.now()
         self.db_session.add(ficha)
 
-        # Actualizar código de ficha (puede cambiar por estado)
+        # Actualizar código de ficha (puede cambiar por estado o identidad)
         ficha.codigo_ficha_local = self._generar_codigo_ficha(
-            codigo_material_local=ficha.codigo_material_local,
-            pais=ficha.pais,
+            codigo_material_local=ficha.codigo_material_local or "BORRADOR",
+            pais=ficha.pais or "XX",
             estado_ficha=ficha.estado_ficha,
             codigo_version=ficha.codigo_version,
         )
@@ -906,6 +964,17 @@ class FichaService:
                 }
                 secciones[campo] = valor
 
+        # Heredar el nombre local de la ficha vigente, permitiendo override
+        # si la modificación incluye un valor nuevo.
+        nombre_local = ficha_vigente.nombre_local_material
+        nuevo_nombre_local = datos_actualizacion.get("nombre_local_material")
+        if nuevo_nombre_local and nuevo_nombre_local != nombre_local:
+            cambios_aplicados["nombre_local_material"] = {
+                "anterior": nombre_local,
+                "nuevo": nuevo_nombre_local,
+            }
+            nombre_local = nuevo_nombre_local
+
         # Validar campos requeridos si se modificó caracteristicas_contenido
         if "caracteristicas_contenido" in cambios_aplicados:
             self._validar_contenido_por_tipo(
@@ -918,6 +987,7 @@ class FichaService:
             id_material_corporativo=ficha_vigente.id_material_corporativo,
             codigo_ficha_local=codigo_ficha_local,
             codigo_material_local=ficha_vigente.codigo_material_local,
+            nombre_local_material=nombre_local,
             codigo_version=nueva_version,
             usuario_creador=usuario,
             usuario_ultima_actualizacion=usuario,

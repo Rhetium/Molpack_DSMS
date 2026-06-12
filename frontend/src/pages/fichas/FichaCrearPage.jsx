@@ -4,17 +4,8 @@ import { ArrowLeft, ArrowRight, Save, Check, Sparkles, Info } from 'lucide-react
 import api from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
 import { AsistenteIA, IndicadorProgreso, TipCampo } from './AsistenteIA';
-
-const PAISES = [
-  { code: 'CO', nombre: 'Colombia' },
-  { code: 'VE', nombre: 'Venezuela' },
-  { code: 'EC', nombre: 'Ecuador' },
-  { code: 'PE', nombre: 'Perú' },
-  { code: 'PR', nombre: 'República Dominicana' },
-  { code: 'GT', nombre: 'Guatemala' },
-  { code: 'HN', nombre: 'Honduras' },
-  { code: 'PA', nombre: 'Panamá' },
-];
+import { PAISES } from './paises';
+import { toggleNc, tieneValores } from './fichaCampos';
 
 const PASOS = [
   { id: 0, titulo: 'Material y País', descripcion: 'Selecciona el material asociado' },
@@ -134,7 +125,8 @@ export default function FichaCrearPage() {
   // Campos de características — deflexion para Separadores, resistencia para Portavasos/Bandejas,
   // ninguno para Estuches y otros
   const camposCaracteristicasDinamicos = useMemo(() => {
-    const cat = (tipoCategoria || '').toLowerCase();
+    // Sin espacios: 'Porta vasos' y 'Portavasos' son la misma categoría
+    const cat = (tipoCategoria || '').toLowerCase().replace(/\s+/g, '');
     const campos = [...CAMPOS_CARACTERISTICAS_BASE];
     if (cat.includes('separador')) {
       campos.push(
@@ -186,10 +178,6 @@ export default function FichaCrearPage() {
       }
     }
     return limpio;
-  }
-
-  function tieneValores(datos) {
-    return Object.values(datos).some((v) => v !== '' && v !== null && v !== undefined);
   }
 
   // Callback para aplicar sugerencias del asistente IA
@@ -497,7 +485,7 @@ function PasoMaterial({ materiales, materialId, setMaterialId, codigoLocal, setC
           >
             <option value="">Seleccionar país...</option>
             {PAISES.map((p) => (
-              <option key={p.code} value={p.nombre}>{p.nombre}</option>
+              <option key={p.code} value={p.code}>{p.nombre}</option>
             ))}
           </select>
         </div>
@@ -523,12 +511,6 @@ function PasoMedidas({ datos, setDatos, campos }) {
     setDatos((prev) => ({ ...prev, [campo]: valor }));
   }
 
-  function toggleNc(prefijo) {
-    const ncKey = `${prefijo}_nc`;
-    const activar = !datos[ncKey];
-    setDatos((prev) => ({ ...prev, [ncKey]: activar }));
-  }
-
   return (
     <div className="space-y-4">
       {campos.map((grupo) => {
@@ -547,7 +529,7 @@ function PasoMedidas({ datos, setDatos, campos }) {
                 <input
                   type="checkbox"
                   checked={isNc}
-                  onChange={() => toggleNc(grupo.prefijo)}
+                  onChange={() => setDatos((prev) => toggleNc(prev, grupo.prefijo))}
                   className="w-3.5 h-3.5 accent-amber-500"
                 />
                 <span className={`text-xs font-semibold ${isNc ? 'text-amber-600' : 'text-gray-400'}`}>N/C</span>
@@ -703,7 +685,7 @@ function PasoContenidoDinamico({ datos, setDatos, campos, tipoContenido }) {
                   <input
                     type="checkbox"
                     checked={isNc}
-                    onChange={() => setDatos((prev) => ({ ...prev, [`${grupo.prefijo}_nc`]: !prev[`${grupo.prefijo}_nc`] }))}
+                    onChange={() => setDatos((prev) => toggleNc(prev, grupo.prefijo))}
                     className="w-3.5 h-3.5 accent-amber-500"
                   />
                   <span className={`text-xs font-semibold ${isNc ? 'text-amber-600' : 'text-gray-400'}`}>N/C</span>
@@ -882,7 +864,7 @@ function PasoMicrobiologia({ datos, setDatos }) {
                 </div>
                 <div className="flex items-center gap-1.5 pb-1">
                   <input type="checkbox" id={`${p.prefijo}_nc`} checked={nc}
-                    onChange={(e) => h(`${p.prefijo}_nc`, e.target.checked)}
+                    onChange={() => setDatos((prev) => toggleNc(prev, p.prefijo))}
                     className="w-4 h-4 rounded accent-[#29b34b]" />
                   <label htmlFor={`${p.prefijo}_nc`} className="text-xs text-gray-500 select-none">N/C</label>
                 </div>
@@ -914,7 +896,7 @@ function PasoMicrobiologia({ datos, setDatos }) {
                 </div>
                 <div className="flex items-center gap-1.5 pb-1">
                   <input type="checkbox" id={`${m.prefijo}_nc`} checked={nc}
-                    onChange={(e) => h(`${m.prefijo}_nc`, e.target.checked)}
+                    onChange={() => setDatos((prev) => toggleNc(prev, m.prefijo))}
                     className="w-4 h-4 rounded accent-[#29b34b]" />
                   <label htmlFor={`${m.prefijo}_nc`} className="text-xs text-gray-500 select-none">N/C</label>
                 </div>

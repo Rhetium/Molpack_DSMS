@@ -4,6 +4,8 @@ import { ArrowLeft, ArrowRight, Save, Check, Info, AlertTriangle, Pencil } from 
 import api from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
 import { TipCampo } from './AsistenteIA';
+import { PAISES } from './paises';
+import { toggleNc, tieneValores } from './fichaCampos';
 
 const PASOS = [
   { id: 0, titulo: 'Información Base', descripcion: 'Datos de identificación de la ficha' },
@@ -109,6 +111,8 @@ export default function FichaEditarPage() {
   const [exitoMsg, setExitoMsg] = useState(null);
 
   const [nombreLocal, setNombreLocal] = useState('');
+  const [codigoLocal, setCodigoLocal] = useState('');
+  const [pais, setPais] = useState('');
   const [caracteristicas, setCaracteristicas] = useState(DEFAULTS_CARACTERISTICAS);
   const [contenido, setContenido] = useState(DEFAULTS_CONTENIDO);
   const [empaque, setEmpaque] = useState(DEFAULTS_EMPAQUE);
@@ -124,6 +128,8 @@ export default function FichaEditarPage() {
       setFicha(f);
       setMateriales(matRes.data);
       setNombreLocal(f.nombre_local_material || '');
+      setCodigoLocal(f.codigo_material_local || '');
+      setPais(f.pais || '');
       setCaracteristicas(hidratarSeccion(f.caracteristicas, DEFAULTS_CARACTERISTICAS));
       setContenido(hidratarSeccion(f.caracteristicas_contenido, DEFAULTS_CONTENIDO));
       setEmpaque(hidratarSeccion(f.empaque_estiba, DEFAULTS_EMPAQUE));
@@ -145,7 +151,8 @@ export default function FichaEditarPage() {
   const tipoCategoria = useMemo(() => materialSeleccionado?.categoria || '', [materialSeleccionado]);
 
   const camposCaracteristicasDinamicos = useMemo(() => {
-    const cat = (tipoCategoria || '').toLowerCase();
+    // Sin espacios: 'Porta vasos' y 'Portavasos' son la misma categoría
+    const cat = (tipoCategoria || '').toLowerCase().replace(/\s+/g, '');
     const campos = [...CAMPOS_CARACTERISTICAS_BASE];
     if (cat.includes('separador')) {
       campos.push(
@@ -197,17 +204,19 @@ export default function FichaEditarPage() {
     return limpio;
   }
 
-  function tieneValores(datos) {
-    return Object.values(datos).some((v) => v !== '' && v !== null && v !== undefined && v !== false);
-  }
-
   async function handleSubmit() {
     setError(null);
     setExitoMsg(null);
     setGuardando(true);
     try {
+      const esBorrador = ficha?.estado_ficha === 'Borrador';
       const payload = {
         nombre_local_material: nombreLocal || null,
+        // Identidad de la ficha: el backend solo la acepta en Borrador
+        ...(esBorrador && {
+          codigo_material_local: codigoLocal.trim() || null,
+          pais: pais || null,
+        }),
         caracteristicas: tieneValores(caracteristicas) ? limpiarSeccion(caracteristicas) : null,
         caracteristicas_contenido: tieneValores(contenido) ? limpiarSeccion(contenido) : null,
         empaque_estiba: tieneValores(empaque) ? limpiarSeccion(empaque) : null,
@@ -347,6 +356,10 @@ export default function FichaEditarPage() {
             materialSeleccionado={materialSeleccionado}
             nombreLocal={nombreLocal}
             setNombreLocal={setNombreLocal}
+            codigoLocal={codigoLocal}
+            setCodigoLocal={setCodigoLocal}
+            pais={pais}
+            setPais={setPais}
           />
         )}
         {paso === 1 && (
@@ -404,8 +417,9 @@ export default function FichaEditarPage() {
   );
 }
 
-/* ========== PASO 0: Info Base (solo lectura + nombre local editable) ========== */
-function PasoInfoBase({ ficha, materialSeleccionado, nombreLocal, setNombreLocal }) {
+/* ========== PASO 0: Info Base (solo lectura + campos editables según estado) ========== */
+function PasoInfoBase({ ficha, materialSeleccionado, nombreLocal, setNombreLocal, codigoLocal, setCodigoLocal, pais, setPais }) {
+  const esBorrador = ficha?.estado_ficha === 'Borrador';
   return (
     <div className="space-y-5">
       <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
@@ -417,19 +431,55 @@ function PasoInfoBase({ ficha, materialSeleccionado, nombreLocal, setNombreLocal
           <span className="text-gray-900 font-medium">{materialSeleccionado?.categoria || '—'}</span>
           <span className="text-gray-500">Contenido</span>
           <span className="text-gray-900 font-medium">{materialSeleccionado?.contenido || '—'}</span>
-          <span className="text-gray-500">Código Local</span>
-          <span className="font-mono text-gray-900">{ficha?.codigo_material_local || '—'}</span>
-          <span className="text-gray-500">País</span>
-          <span className="text-gray-900 font-medium">{ficha?.pais || '—'}</span>
+          {!esBorrador && (
+            <>
+              <span className="text-gray-500">Código Local</span>
+              <span className="font-mono text-gray-900">{ficha?.codigo_material_local || '—'}</span>
+              <span className="text-gray-500">País</span>
+              <span className="text-gray-900 font-medium">{ficha?.pais || '—'}</span>
+            </>
+          )}
           <span className="text-gray-500">Estado</span>
           <span className="text-gray-900 font-medium">{ficha?.estado_ficha || '—'}</span>
           <span className="text-gray-500">Versión</span>
           <span className="font-mono text-gray-900">{ficha?.codigo_version || '—'}</span>
         </div>
         <p className="text-xs text-gray-400 mt-1">
-          Para cambiar el material o el país crea una nueva versión desde la página de detalle.
+          {esBorrador
+            ? 'Para cambiar el material crea una nueva ficha.'
+            : 'Para cambiar el material o el país crea una nueva versión desde la página de detalle.'}
         </p>
       </div>
+
+      {esBorrador && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Código de Material Local</label>
+            <input
+              type="text"
+              value={codigoLocal}
+              onChange={(e) => setCodigoLocal(e.target.value)}
+              placeholder="Ej: EST-12"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+            <p className="text-xs text-gray-400 mt-1">Obligatorio para pasar a Preliminar.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">País</label>
+            <select
+              value={pais}
+              onChange={(e) => setPais(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            >
+              <option value="">Seleccionar país...</option>
+              {PAISES.map((p) => (
+                <option key={p.code} value={p.code}>{p.nombre}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Obligatorio para pasar a Preliminar.</p>
+          </div>
+        </div>
+      )}
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Local del Material</label>
@@ -452,11 +502,6 @@ function PasoMedidas({ datos, setDatos, campos }) {
     setDatos((prev) => ({ ...prev, [campo]: valor }));
   }
 
-  function toggleNc(prefijo) {
-    const ncKey = `${prefijo}_nc`;
-    setDatos((prev) => ({ ...prev, [ncKey]: !prev[ncKey] }));
-  }
-
   return (
     <div className="space-y-4">
       {campos.map((grupo) => {
@@ -475,7 +520,7 @@ function PasoMedidas({ datos, setDatos, campos }) {
                 <input
                   type="checkbox"
                   checked={isNc}
-                  onChange={() => toggleNc(grupo.prefijo)}
+                  onChange={() => setDatos((prev) => toggleNc(prev, grupo.prefijo))}
                   className="w-3.5 h-3.5 accent-amber-500"
                 />
                 <span className={`text-xs font-semibold ${isNc ? 'text-amber-600' : 'text-gray-400'}`}>N/C</span>
@@ -621,7 +666,7 @@ function PasoContenidoDinamico({ datos, setDatos, campos, tipoContenido }) {
                   <input
                     type="checkbox"
                     checked={isNc}
-                    onChange={() => setDatos((prev) => ({ ...prev, [`${grupo.prefijo}_nc`]: !prev[`${grupo.prefijo}_nc`] }))}
+                    onChange={() => setDatos((prev) => toggleNc(prev, grupo.prefijo))}
                     className="w-3.5 h-3.5 accent-amber-500"
                   />
                   <span className={`text-xs font-semibold ${isNc ? 'text-amber-600' : 'text-gray-400'}`}>N/C</span>
@@ -766,7 +811,7 @@ function PasoMicrobiologia({ datos, setDatos }) {
                 </div>
                 <div className="flex items-center gap-1.5 pb-1">
                   <input type="checkbox" checked={nc}
-                    onChange={(e) => h(`${p.prefijo}_nc`, e.target.checked)}
+                    onChange={() => setDatos((prev) => toggleNc(prev, p.prefijo))}
                     className="w-4 h-4 rounded accent-amber-500" />
                   <span className="text-xs text-gray-500 select-none">N/C</span>
                 </div>
@@ -798,7 +843,7 @@ function PasoMicrobiologia({ datos, setDatos }) {
                 </div>
                 <div className="flex items-center gap-1.5 pb-1">
                   <input type="checkbox" checked={nc}
-                    onChange={(e) => h(`${m.prefijo}_nc`, e.target.checked)}
+                    onChange={() => setDatos((prev) => toggleNc(prev, m.prefijo))}
                     className="w-4 h-4 rounded accent-amber-500" />
                   <span className="text-xs text-gray-500 select-none">N/C</span>
                 </div>

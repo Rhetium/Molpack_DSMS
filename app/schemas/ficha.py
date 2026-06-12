@@ -332,6 +332,9 @@ class FichaTecnicaCreateSchema(BaseModel):
 
 class FichaTecnicaUpdateSchema(BaseModel):
     nombre_local_material: str | None = None
+    # Solo editables mientras la ficha está en Borrador (placeholders de creación)
+    codigo_material_local: str | None = None
+    pais: str | None = None
     caracteristicas: Optional[CaracteristicasSchema] = None
     caracteristicas_contenido: Optional[CaracteristicasContenidoSchema] = None
     empaque_estiba: Optional[EmpaqueEstibaSchema] = None
