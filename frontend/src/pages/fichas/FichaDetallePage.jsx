@@ -3,7 +3,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, FileText, AlertTriangle, Package,
   Ruler, Egg, BoxSelect, Bug, ShieldCheck, ChevronRight,
-  Download, FileSpreadsheet, Image, FlaskConical,
+  Download, FileSpreadsheet, Image, FlaskConical, History,
 } from 'lucide-react';
 import api from '../../../lib/api';
 import ImagenesFicha from './ImagenesFicha';
@@ -30,15 +30,20 @@ export default function FichaDetallePage() {
   const [ficha, setFicha] = useState(null);
   const [material, setMaterial] = useState(null);
   const [anomalias, setAnomalias] = useState([]);
+  const [versiones, setVersiones] = useState([]);
+  // Si la ficha es obsoleta por versionamiento: { version, secciones } con los
+  // campos que cambiaron en la versión que la reemplazó. null en otro caso.
+  const [cambios, setCambios] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [tab, setTab] = useState(searchParams.get('tab') || 'caracteristicas');
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
 
   async function cargar() {
     try {
-      const [fichaRes, anomRes] = await Promise.allSettled([
+      const [fichaRes, anomRes, versRes] = await Promise.allSettled([
         api.get(`/ficha/${id}`),
         api.get(`/anomalias/kitem/${id}`),
+        api.get(`/ficha/${id}/versiones`),
       ]);
 
       if (fichaRes.status === 'fulfilled') {
@@ -53,6 +58,32 @@ export default function FichaDetallePage() {
       }
       if (anomRes.status === 'fulfilled') {
         setAnomalias(anomRes.value.data.anomalias || []);
+      }
+      const lista = versRes.status === 'fulfilled' ? (versRes.value.data || []) : [];
+      if (versRes.status === 'fulfilled') {
+        setVersiones(lista);
+      }
+
+      // Si la ficha es obsoleta por versionamiento, calcular qué se modificó
+      // respecto a la versión que la reemplazó (su sucesora en el linaje).
+      setCambios(null);
+      const fichaData = fichaRes.status === 'fulfilled' ? fichaRes.value.data : null;
+      if (fichaData?.estado_ficha === 'Obsoleto') {
+        const vActual = Number.parseFloat(fichaData.codigo_version) || 0;
+        const sucesora = lista
+          .filter((v) => (Number.parseFloat(v.codigo_version) || 0) > vActual)
+          .sort((a, b) => (Number.parseFloat(a.codigo_version) || 0) - (Number.parseFloat(b.codigo_version) || 0))[0];
+        if (sucesora) {
+          try {
+            const sucRes = await api.get(`/ficha/${sucesora.id_ficha}`);
+            setCambios({
+              version: sucesora.codigo_version,
+              secciones: calcularCambios(fichaData, sucRes.data),
+            });
+          } catch (e) {
+            console.error('Error cargando versión sucesora:', e);
+          }
+        }
       }
     } catch (error) {
       console.error('Error:', error);
@@ -133,6 +164,7 @@ export default function FichaDetallePage() {
     { id: 'microbiologia', label: 'Microbiología', icono: Bug },
     { id: 'manejo', label: 'Manejo y Disposición', icono: ShieldCheck },
     { id: 'imagenes', label: 'Imágenes', icono: Image },
+    { id: 'versiones', label: `Versiones (${versiones.length})`, icono: History },
     { id: 'anomalias', label: `Anomalías (${anomalias.length})`, icono: AlertTriangle },
   ];
 
@@ -167,7 +199,7 @@ export default function FichaDetallePage() {
         </div>
 
         {/* Info rápida */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
           <div>
             <p className="text-xs text-gray-500">Material</p>
             <Link
@@ -185,13 +217,20 @@ export default function FichaDetallePage() {
             <p className="text-xs text-gray-500">País</p>
             <p className="text-sm font-medium text-gray-900">{ficha.pais}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Color</p>
-            <p className="text-sm font-medium text-gray-900">{ficha.caracteristicas?.color || '—'}</p>
-          </div>
+         
           <div>
             <p className="text-xs text-gray-500">Creador</p>
             <p className="text-sm font-medium text-gray-900">{ficha.usuario_creador}</p>
+          </div>
+
+          <div>
+            <p className="text-xs text-gray-500">Fecha de creación</p>
+            <p className="text-sm font-medium text-gray-900">{formatearFecha(ficha.fecha_registro)}</p>
+          </div>
+
+          <div>
+            <p className="text-xs text-gray-500">Última actualización</p>
+            <p className="text-sm font-medium text-gray-900">{formatearFecha(ficha.fecha_actualizacion)}</p>
           </div>
         </div>
 
@@ -324,12 +363,23 @@ export default function FichaDetallePage() {
         </div>
       </div>
 
+      {/* Aviso de ficha obsoleta por versionamiento */}
+      {cambios && ['caracteristicas', 'contenido', 'empaque', 'microbiologia', 'manejo'].includes(tab) && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-500" />
+          <p className="text-sm text-red-700">
+            Esta ficha fue reemplazada por la versión <span className="font-semibold">v{cambios.version}</span>.
+            Los campos resaltados en <span className="font-semibold">rojo</span> son los que cambiaron en esa nueva versión.
+          </p>
+        </div>
+      )}
+
       {/* Contenido de secciones */}
-      {tab === 'caracteristicas' && <SeccionJsonb datos={ficha.caracteristicas} titulo="Características Físicas" />}
-      {tab === 'contenido' && <SeccionJsonb datos={ficha.caracteristicas_contenido} titulo="Características del Contenido" />}
-      {tab === 'empaque' && <SeccionJsonb datos={ficha.empaque_estiba} titulo="Empaque y Estiba" />}
-      {tab === 'microbiologia' && <SeccionJsonb datos={ficha.microbiologia} titulo="Microbiología y Metales Pesados" />}
-      {tab === 'manejo' && <SeccionJsonb datos={ficha.manejo_disposicion} titulo="Manejo y Disposición" />}
+      {tab === 'caracteristicas' && <SeccionJsonb datos={ficha.caracteristicas} titulo="Características Físicas" camposModificados={cambios?.secciones?.caracteristicas} />}
+      {tab === 'contenido' && <SeccionJsonb datos={ficha.caracteristicas_contenido} titulo="Características del Contenido" camposModificados={cambios?.secciones?.caracteristicas_contenido} />}
+      {tab === 'empaque' && <SeccionJsonb datos={ficha.empaque_estiba} titulo="Empaque y Estiba" camposModificados={cambios?.secciones?.empaque_estiba} />}
+      {tab === 'microbiologia' && <SeccionJsonb datos={ficha.microbiologia} titulo="Microbiología y Metales Pesados" camposModificados={cambios?.secciones?.microbiologia} />}
+      {tab === 'manejo' && <SeccionJsonb datos={ficha.manejo_disposicion} titulo="Manejo y Disposición" camposModificados={cambios?.secciones?.manejo_disposicion} />}
       {tab === 'imagenes' && (
         <ImagenesFicha
           idFicha={id}
@@ -337,13 +387,102 @@ export default function FichaDetallePage() {
           onActualizar={cargar}
         />
       )}
+      {tab === 'versiones' && <TabVersiones versiones={versiones} actualId={id} />}
       {tab === 'anomalias' && <TabAnomalias anomalias={anomalias} />}
     </div>
   );
 }
 
+/* ========== Tab Versiones ========== */
+function TabVersiones({ versiones, actualId }) {
+  if (!versiones || versiones.length <= 1) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center">
+        <History size={40} className="mx-auto text-gray-300 mb-3" />
+        <p className="text-sm text-gray-500">Esta ficha no tiene versiones anteriores</p>
+      </div>
+    );
+  }
+
+  // Más reciente primero
+  const ordenadas = [...versiones].sort(
+    (a, b) => (Number.parseFloat(b.codigo_version) || 0) - (Number.parseFloat(a.codigo_version) || 0)
+  );
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200">
+        <h3 className="text-sm font-semibold text-gray-900">
+          Historial de versiones ({versiones.length})
+        </h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50">
+              <th className="text-left px-6 py-2.5 text-xs font-medium text-gray-500 uppercase">Versión</th>
+              <th className="text-left px-6 py-2.5 text-xs font-medium text-gray-500 uppercase">Estado</th>
+              <th className="text-left px-6 py-2.5 text-xs font-medium text-gray-500 uppercase">Código de ficha</th>
+              <th className="text-left px-6 py-2.5 text-xs font-medium text-gray-500 uppercase">Última actualización</th>
+              <th className="text-left px-6 py-2.5 text-xs font-medium text-gray-500 uppercase">Por</th>
+              <th className="px-6 py-2.5"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {ordenadas.map((v) => {
+              const esActual = String(v.id_ficha) === String(actualId);
+              return (
+                <tr key={v.id_ficha} className={esActual ? 'bg-[#044926]/5' : 'hover:bg-gray-50'}>
+                  <td className="px-6 py-3 text-sm font-medium text-gray-900">
+                    v{v.codigo_version}
+                    {esActual && (
+                      <span className="ml-2 text-[10px] font-semibold text-[#044926] bg-[#29b34b]/15 px-1.5 py-0.5 rounded">
+                        ACTUAL
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-3">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      coloresEstado[v.estado_ficha] || 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {v.estado_ficha}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3 text-sm text-gray-700 font-mono">{v.codigo_ficha_local || '—'}</td>
+                  <td className="px-6 py-3 text-sm text-gray-600">{formatearFecha(v.fecha_actualizacion)}</td>
+                  <td className="px-6 py-3 text-sm text-gray-600">{v.usuario_ultima_actualizacion || '—'}</td>
+                  <td className="px-6 py-3 text-right">
+                    {esActual ? (
+                      <span className="text-xs text-gray-400">—</span>
+                    ) : (
+                      <Link
+                        to={`/fichas/${v.id_ficha}`}
+                        className="inline-flex items-center gap-1 text-sm font-medium text-[#044926] hover:text-[#29b34b]"
+                      >
+                        Ver <ChevronRight size={14} />
+                      </Link>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ========== Sección JSONB genérica ========== */
-function SeccionJsonb({ datos, titulo }) {
+function SeccionJsonb({ datos, titulo, camposModificados }) {
+  // Una medida está modificada si cambió cualquiera de sus claves crudas.
+  const medidaModificada = (prefijo) =>
+    camposModificados != null &&
+    ['_valor', '_tolerancia', '_unidad', '_limite'].some(
+      (suf) => camposModificados.has(prefijo + suf)
+    );
+  const campoModificado = (clave) => camposModificados?.has(clave) ?? false;
+
   if (!datos || Object.keys(datos).length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center">
@@ -373,22 +512,26 @@ function SeccionJsonb({ datos, titulo }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {grupos.medidas.map((medida) => (
-                <tr key={medida.nombre} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 text-sm font-medium text-gray-700">
-                    {formatearNombreCampo(medida.nombre)}
-                  </td>
-                  <td className="px-6 py-3 text-sm text-gray-900 font-mono">
-                    {medida.valor ?? '—'}
-                  </td>
-                  <td className="px-6 py-3 text-sm text-gray-600 font-mono">
-                    {medida.tolerancia != null ? `± ${medida.tolerancia}` : '—'}
-                  </td>
-                  <td className="px-6 py-3 text-sm text-gray-600">
-                    {medida.unidad || '—'}
-                  </td>
-                </tr>
-              ))}
+              {grupos.medidas.map((medida) => {
+                const mod = medidaModificada(medida.nombre);
+                return (
+                  <tr key={medida.nombre} className={mod ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                    <td className={`px-6 py-3 text-sm font-medium ${mod ? 'text-red-700' : 'text-gray-700'}`}>
+                      {formatearNombreCampo(medida.nombre)}
+                      {mod && <span className="ml-2 text-[10px] font-semibold text-red-600">● modificado</span>}
+                    </td>
+                    <td className={`px-6 py-3 text-sm font-mono ${mod ? 'text-red-700 font-semibold' : 'text-gray-900'}`}>
+                      {medida.valor ?? '—'}
+                    </td>
+                    <td className={`px-6 py-3 text-sm font-mono ${mod ? 'text-red-600' : 'text-gray-600'}`}>
+                      {medida.tolerancia != null ? `± ${medida.tolerancia}` : '—'}
+                    </td>
+                    <td className={`px-6 py-3 text-sm ${mod ? 'text-red-600' : 'text-gray-600'}`}>
+                      {medida.unidad || '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -396,16 +539,20 @@ function SeccionJsonb({ datos, titulo }) {
 
       {grupos.otros.length > 0 && (
         <div className={`divide-y divide-gray-100 ${grupos.medidas.length > 0 ? 'border-t border-gray-200' : ''}`}>
-          {grupos.otros.map(({ clave, valor }) => (
-            <div key={clave} className="flex items-start px-6 py-3">
-              <span className="w-48 text-sm font-medium text-gray-500 shrink-0">
-                {formatearNombreCampo(clave)}
-              </span>
-              <span className="text-sm text-gray-900">
-                {typeof valor === 'object' ? JSON.stringify(valor) : String(valor ?? '—')}
-              </span>
-            </div>
-          ))}
+          {grupos.otros.map(({ clave, valor }) => {
+            const mod = campoModificado(clave);
+            return (
+              <div key={clave} className={`flex items-start px-6 py-3 ${mod ? 'bg-red-50' : ''}`}>
+                <span className={`w-48 text-sm font-medium shrink-0 ${mod ? 'text-red-700' : 'text-gray-500'}`}>
+                  {formatearNombreCampo(clave)}
+                  {mod && <span className="ml-2 text-[10px] font-semibold text-red-600">● modificado</span>}
+                </span>
+                <span className={`text-sm ${mod ? 'text-red-700 font-semibold' : 'text-gray-900'}`}>
+                  {typeof valor === 'object' ? JSON.stringify(valor) : String(valor ?? '—')}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -458,6 +605,46 @@ function TabAnomalias({ anomalias }) {
 }
 
 /* ========== Helpers ========== */
+const SECCIONES_DIFF = [
+  'caracteristicas',
+  'caracteristicas_contenido',
+  'empaque_estiba',
+  'microbiologia',
+  'manejo_disposicion',
+];
+
+// Compara las secciones JSONB de dos fichas (anterior vs siguiente) y devuelve,
+// por sección, un Set con las claves cuyo valor cambió.
+function calcularCambios(anterior, siguiente) {
+  const esVacio = (x) => x == null || x === '';
+  const out = {};
+  for (const sec of SECCIONES_DIFF) {
+    const a = anterior?.[sec] || {};
+    const b = siguiente?.[sec] || {};
+    const claves = new Set([...Object.keys(a), ...Object.keys(b)]);
+    const cambiadas = new Set();
+    for (const clave of claves) {
+      if (clave === 'imagenes') continue; // las imágenes no son un dato de la ficha
+      if (esVacio(a[clave]) && esVacio(b[clave])) continue;
+      if (JSON.stringify(a[clave]) !== JSON.stringify(b[clave])) {
+        cambiadas.add(clave);
+      }
+    }
+    out[sec] = cambiadas;
+  }
+  return out;
+}
+
+function formatearFecha(iso) {
+  if (!iso) return '—';
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return '—';
+  return fecha.toLocaleString('es', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
 function agruparCampos(datos) {
   const medidas = [];
   const otros = [];
@@ -511,7 +698,7 @@ function agruparCampos(datos) {
     ) continue;
 
     const valor = datos[clave];
-    if (valor == null || valor === '' || typeof valor === 'boolean') continue;
+    if (valor == null || valor === '' || typeof valor === 'boolean' || typeof valor === 'object') continue;
 
     otros.push({ clave, valor });
     procesados.add(clave);

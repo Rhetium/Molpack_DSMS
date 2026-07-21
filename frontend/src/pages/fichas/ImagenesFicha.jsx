@@ -15,22 +15,51 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
   const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [imagenesRotas, setImagenesRotas] = useState({});
+  const [imagenUrls, setImagenUrls] = useState({});
   const inputRefs = useRef({});
-
-  // Resetear imágenes rotas cuando cambian los datos (upload/delete exitoso)
-  useEffect(() => {
-    setImagenesRotas({});
-  }, [imagenes]);
 
   function getImagenInfo(tipo) {
     return imagenes?.[tipo] || null;
   }
 
-  // Cache buster usando tamano_bytes del archivo actual para forzar recarga tras reemplazar
+  // El endpoint de imágenes requiere autenticación (header Authorization), y los
+  // tags <img> no lo envían. Por eso descargamos cada imagen con el cliente axios
+  // (que sí adjunta el JWT) como blob y la exponemos vía object URL local.
+  useEffect(() => {
+    let cancelado = false;
+    const urlsCreadas = [];
+    setImagenesRotas({});
+
+    async function cargar() {
+      const nuevas = {};
+      for (const tipo of TIPOS_IMAGEN) {
+        const info = imagenes?.[tipo.id];
+        if (!info) continue;
+        try {
+          const { data } = await api.get(`/ficha/${idFicha}/imagen/${tipo.id}`, {
+            responseType: 'blob',
+          });
+          if (cancelado) return;
+          const objectUrl = URL.createObjectURL(data);
+          urlsCreadas.push(objectUrl);
+          nuevas[tipo.id] = objectUrl;
+        } catch {
+          if (cancelado) return;
+          setImagenesRotas((prev) => ({ ...prev, [tipo.id]: true }));
+        }
+      }
+      if (!cancelado) setImagenUrls(nuevas);
+    }
+    cargar();
+
+    return () => {
+      cancelado = true;
+      urlsCreadas.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [idFicha, imagenes]);
+
   function getImagenUrl(tipo) {
-    const info = getImagenInfo(tipo);
-    const v = info?.tamano_bytes ?? 0;
-    return `/api/ficha/${idFicha}/imagen/${tipo}?v=${v}`;
+    return imagenUrls[tipo] || null;
   }
 
   function marcarImagenRota(tipo) {
@@ -144,13 +173,19 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
                       className="relative aspect-video bg-gray-50 rounded-lg overflow-hidden cursor-pointer group"
                       onClick={() => setPreview(tipo.id)}
                     >
-                      <img
-                        key={getImagenUrl(tipo.id)}
-                        src={getImagenUrl(tipo.id)}
-                        alt={tipo.label}
-                        className="w-full h-full object-contain"
-                        onError={() => marcarImagenRota(tipo.id)}
-                      />
+                      {getImagenUrl(tipo.id) ? (
+                        <img
+                          key={getImagenUrl(tipo.id)}
+                          src={getImagenUrl(tipo.id)}
+                          alt={tipo.label}
+                          className="w-full h-full object-contain"
+                          onError={() => marcarImagenRota(tipo.id)}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-6 h-6 border-2 border-[#29b34b]/30 border-t-[#29b34b] rounded-full animate-spin" />
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
                         <Eye size={24} className="text-white opacity-0 group-hover:opacity-70 transition-opacity" />
                       </div>
@@ -240,11 +275,17 @@ export default function ImagenesFicha({ idFicha, imagenes, onActualizar, soloLec
             >
               <X size={18} />
             </button>
-            <img
-              src={getImagenUrl(preview)}
-              alt={preview}
-              className="max-w-full max-h-[80vh] rounded-lg shadow-2xl"
-            />
+            {getImagenUrl(preview) ? (
+              <img
+                src={getImagenUrl(preview)}
+                alt={preview}
+                className="max-w-full max-h-[80vh] rounded-lg shadow-2xl"
+              />
+            ) : (
+              <div className="w-64 h-64 flex items-center justify-center">
+                <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              </div>
+            )}
             <p className="text-center text-white/70 text-sm mt-3">
               {TIPOS_IMAGEN.find((t) => t.id === preview)?.label}
             </p>

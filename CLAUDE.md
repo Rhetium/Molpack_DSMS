@@ -17,6 +17,32 @@ uvicorn app.main:app --reload
 pip install -r requirements.txt
 ```
 
+### Tests (pytest)
+```bash
+# Install dev/test dependencies (runtime + pytest)
+pip install -r requirements-dev.txt
+
+# Run the unit test suite (fast, no DB required)
+pytest
+
+# Run a single file or filter by name
+pytest tests/test_ficha_service_transiciones.py
+pytest -k "transicion"
+```
+Tests live in `tests/`, in two layers:
+- **Pure domain logic** — FichaTecnica state machine, field-completeness
+  validations, code/version generation, anomaly detectors (z-score, category
+  ranges, unit consistency). Services are instantiated via `__new__` to bypass
+  DB/embedding setup; ORM entities are `SimpleNamespace` stubs.
+- **Service orchestration** (`test_ficha_service_flujo.py`) — `cambiar_estado`
+  and `actualizar` flows exercised against a `FakeSession` (whose `execute`
+  returns predefined results in order) with mocked collaborators. This validates
+  the business branching (transition rules, blocking on pending anomalies,
+  automatic versioning + obsolescence) without PostgreSQL/pgvector.
+
+Factories and fakes live in `tests/conftest.py`. Full end-to-end tests against a
+real pgvector database are not yet present.
+
 ### Frontend (React + Vite)
 ```bash
 cd frontend
@@ -35,7 +61,7 @@ npm run lint
 
 ### Stack
 - **Backend**: FastAPI (async) + SQLAlchemy 2.0 + PostgreSQL + pgvector
-- **Frontend**: React 19 + React Router 7 + TanStack Query + React Hook Form + Zod + Tailwind CSS 4
+- **Frontend**: React 19 + React Router 7 + Tailwind CSS 4. Data fetching is done with **Axios + `useState`/`useEffect`** (client in `frontend/lib/api.js`); forms use plain `useState` + native `<form>`. NOTE: `@tanstack/react-query`, `react-hook-form` and `zod` are in `package.json` but **not actually used** — only `QueryClientProvider` is mounted in `App.jsx`. Do not assume they are wired.
 - **Auth**: LDAP/Active Directory (ldap3) with JWT fallback
 - **Embeddings**: sentence-transformers (`all-MiniLM-L6-v2`, 384-dim vectors via pgvector)
 
@@ -47,10 +73,10 @@ npm run lint
 - `services/` — Business logic (one service per domain)
 - `routers/` — FastAPI route handlers (thin layer over services)
 
-### Frontend structure (`frontend/src/`)
-- `lib/api.js` — Axios client with JWT interceptors; all API calls go through here
-- `lib/auth.jsx` — React Context for auth state
-- `layouts/MainLayout.jsx` — Sidebar + main content shell
+### Frontend structure
+- `frontend/lib/api.js` — Axios client with JWT interceptors; all API calls go through here (note: `lib/` is OUTSIDE `src/`)
+- `frontend/lib/auth.jsx` — React Context for auth state (`useAuth` → `{ user, cargando, login, logout }`)
+- `frontend/src/layouts/MainLayout.jsx` — Sidebar + main content shell
 - `pages/` — Route-level components (one directory per feature: `fichas/`, `materiales/`, `anomalias/`, `busqueda/`, `grafo/`, `auditoria/`, `dashboard/`)
 
 ### Core design patterns
@@ -63,7 +89,7 @@ npm run lint
 
 **Data flow (create/update)**:
 ```
-Frontend form (Zod validation)
+Frontend form (useState; validation happens server-side)
   → POST /api/<resource>
   → Service: validate state rules, persist via SQLAlchemy
   → EmbeddingService: generate + store vector

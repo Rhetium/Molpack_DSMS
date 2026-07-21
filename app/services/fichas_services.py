@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ficha import FichaTecnica
 from app.models.material import MaterialComercial
 from app.models.anomalia import AnomaliaRegistro
+from app.models.kitem import KItem
 from app.schemas.ficha import (
     FichaTecnicaCreateSchema,
     FichaTecnicaWithMaterialSchema,
@@ -84,9 +85,10 @@ async def _ejecutar_entrenamiento_bg() -> None:
         async with AsyncSessionLocal() as session:
             # Verificar mínimo de fichas Vigentes
             total = await session.scalar(
-                select(func.count()).select_from(FichaTecnica).where(
-                    FichaTecnica.estado_ficha == ESTADO_VIGENTE
-                )
+                select(func.count())
+                .select_from(FichaTecnica)
+                .join(KItem, FichaTecnica.id_ficha == KItem.id)
+                .where(KItem.estado == ESTADO_VIGENTE)
             )
             if (total or 0) < MIN_MUESTRAS_ML:
                 logger.info(
@@ -163,12 +165,16 @@ class FichaService:
             )
 
     async def _validar_unica_vigente_por_material_pais(self, ficha: FichaTecnica) -> None:
-        query = select(FichaTecnica).where(
-            and_(
-                FichaTecnica.id_material_corporativo == ficha.id_material_corporativo,
-                FichaTecnica.pais == ficha.pais,
-                FichaTecnica.estado_ficha == ESTADO_VIGENTE,
-                FichaTecnica.id_ficha != ficha.id_ficha,
+        query = (
+            select(FichaTecnica)
+            .join(KItem, FichaTecnica.id_ficha == KItem.id)
+            .where(
+                and_(
+                    FichaTecnica.id_material_corporativo == ficha.id_material_corporativo,
+                    FichaTecnica.pais == ficha.pais,
+                    KItem.estado == ESTADO_VIGENTE,
+                    FichaTecnica.id_ficha != ficha.id_ficha,
+                )
             )
         )
         result = await self.db_session.execute(query)
@@ -294,6 +300,41 @@ class FichaService:
             raise HTTPException(status_code=404, detail="Ficha tecnica no encontrada")
         return ficha
 
+    async def listar_versiones(self, id_ficha: UUID) -> list[FichaTecnica]:
+        """
+        Devuelve todas las versiones del linaje de la ficha: aquellas que
+        comparten material, país y código de material local (solo difiere
+        codigo_version). Ordenadas por versión ascendente.
+
+        Las versiones se crean reutilizando el mismo codigo_material_local,
+        y la validación de unicidad garantiza que esa coincidencia solo
+        ocurre por versionamiento. Si el código local aún está vacío
+        (borrador sin completar), no hay linaje: se devuelve solo la ficha.
+        """
+        ficha = await self.obtener(id_ficha)
+
+        if not ficha.codigo_material_local:
+            return [ficha]
+
+        result = await self.db_session.execute(
+            select(FichaTecnica).where(
+                and_(
+                    FichaTecnica.id_material_corporativo == ficha.id_material_corporativo,
+                    FichaTecnica.pais == ficha.pais,
+                    FichaTecnica.codigo_material_local == ficha.codigo_material_local,
+                )
+            )
+        )
+        versiones = result.scalars().all()
+
+        def _clave_version(f: FichaTecnica) -> float:
+            try:
+                return float(f.codigo_version)
+            except (TypeError, ValueError):
+                return 0.0
+
+        return sorted(versiones, key=_clave_version)
+
     async def crear(self, ficha_data: FichaTecnicaCreateSchema):
         """
         Crea una ficha técnica con integración completa al DSMS.
@@ -310,7 +351,6 @@ class FichaService:
         self._validar_contenido_por_tipo(
             caracteristicas_contenido=ficha_data.caracteristicas_contenido,
         )
-        now = datetime.now()
         version_inicial = "1.0"
         estado_inicial = ESTADO_BORRADOR
 
@@ -363,11 +403,6 @@ class FichaService:
             codigo_material_local=codigo_local,
             nombre_local_material=ficha_data.nombre_local_material,
             codigo_version=version_inicial,
-            usuario_creador=ficha_data.usuario_creador,
-            usuario_ultima_actualizacion=ficha_data.usuario_creador,
-            estado_ficha=estado_inicial,
-            fecha_registro=now,
-            fecha_actualizacion=now,
             pais=pais_iso,
             caracteristicas=ficha_data.caracteristicas.model_dump() if ficha_data.caracteristicas else None,
             caracteristicas_contenido=ficha_data.caracteristicas_contenido.model_dump() if ficha_data.caracteristicas_contenido else None,
@@ -375,6 +410,8 @@ class FichaService:
             microbiologia=ficha_data.microbiologia.model_dump() if ficha_data.microbiologia else None,
             manejo_disposicion=ficha_data.manejo_disposicion.model_dump() if ficha_data.manejo_disposicion else None,
         )
+        # estado, usuarios y fechas viven en kitem (única fuente de verdad)
+        ficha.kitem = kitem
         self.db_session.add(ficha)
 
         # PASO 3: Relación "pertenece_a" (auditoría de RELACION_CREADA automática)
@@ -414,13 +451,17 @@ class FichaService:
         texto: str | None = None,
     ) -> list[FichaTecnicaWithMaterialSchema]:
         from sqlalchemy import or_
-        query = select(FichaTecnica, MaterialComercial).join(MaterialComercial)
+        query = (
+            select(FichaTecnica, MaterialComercial)
+            .join(MaterialComercial)
+            .join(KItem, FichaTecnica.id_ficha == KItem.id)
+        )
 
         conditions = []
         if pais:
             conditions.append(FichaTecnica.pais == pais)
         if estado_ficha:
-            conditions.append(FichaTecnica.estado_ficha == estado_ficha)
+            conditions.append(KItem.estado == estado_ficha)
         if tipo_producto:
             conditions.append(MaterialComercial.tipo_producto == tipo_producto)
         if texto:
@@ -482,9 +523,9 @@ class FichaService:
                 ),
             )
 
-        ficha.estado_ficha = nuevo_estado
-        ficha.usuario_ultima_actualizacion = usuario_actualizacion
-        ficha.fecha_actualizacion = datetime.now()
+        # El estado, usuario y fecha viven en kitem; los escribe
+        # actualizar_estado_kitem (que además lee el estado anterior para
+        # la auditoría, por lo que NO debe modificarse aquí antes).
         ficha.codigo_ficha_local = self._generar_codigo_ficha(
             codigo_material_local=ficha.codigo_material_local or "BORRADOR",
             pais=ficha.pais or "XX",
@@ -616,7 +657,6 @@ class FichaService:
         ficha_origen = await self.obtener(id_ficha)
 
         nueva_version = self._incrementar_version_simple(ficha_origen.codigo_version)
-        now = datetime.now()
         estado_inicial = ESTADO_BORRADOR
 
         codigo_ficha_local = self._generar_codigo_ficha(
@@ -652,11 +692,6 @@ class FichaService:
             codigo_material_local=ficha_origen.codigo_material_local,
             nombre_local_material=ficha_origen.nombre_local_material,
             codigo_version=nueva_version,
-            usuario_creador=usuario,
-            usuario_ultima_actualizacion=usuario,
-            estado_ficha=estado_inicial,
-            fecha_registro=now,
-            fecha_actualizacion=now,
             pais=ficha_origen.pais,
             caracteristicas=ficha_origen.caracteristicas,
             caracteristicas_contenido=ficha_origen.caracteristicas_contenido,
@@ -664,6 +699,8 @@ class FichaService:
             microbiologia=ficha_origen.microbiologia,
             manejo_disposicion=ficha_origen.manejo_disposicion,
         )
+        # estado, usuarios y fechas viven en kitem (única fuente de verdad)
+        nueva_ficha.kitem = kitem
         self.db_session.add(nueva_ficha)
 
         # PASO 3: Relación "se_deriva_de" (auditoría de RELACION_CREADA automática)
@@ -916,7 +953,6 @@ class FichaService:
         """
         # PASO 1: Crear nueva versión con datos heredados
         nueva_version = self._incrementar_version_simple(ficha_vigente.codigo_version)
-        now = datetime.now()
         estado_inicial = ESTADO_PRELIMINAR
 
         codigo_ficha_local = self._generar_codigo_ficha(
@@ -989,11 +1025,6 @@ class FichaService:
             codigo_material_local=ficha_vigente.codigo_material_local,
             nombre_local_material=nombre_local,
             codigo_version=nueva_version,
-            usuario_creador=usuario,
-            usuario_ultima_actualizacion=usuario,
-            estado_ficha=estado_inicial,
-            fecha_registro=now,
-            fecha_actualizacion=now,
             pais=ficha_vigente.pais,
             caracteristicas=secciones["caracteristicas"],
             caracteristicas_contenido=secciones["caracteristicas_contenido"],
@@ -1001,6 +1032,8 @@ class FichaService:
             microbiologia=secciones["microbiologia"],
             manejo_disposicion=secciones["manejo_disposicion"],
         )
+        # estado, usuarios y fechas viven en kitem (única fuente de verdad)
+        nueva_ficha.kitem = kitem
         self.db_session.add(nueva_ficha)
 
         # PASO 2: Relación "se_deriva_de" en el grafo
@@ -1025,14 +1058,11 @@ class FichaService:
             )
         )
 
-        # PASO 4: Pasar ficha vigente a Obsoleto automáticamente
+        # PASO 4: Pasar ficha vigente a Obsoleto automáticamente.
+        # estado/usuario/fecha viven en kitem y los escribe
+        # actualizar_estado_kitem (que lee el estado anterior para la
+        # auditoría, por lo que NO debe modificarse aquí antes).
         estado_anterior = ficha_vigente.estado_ficha
-        ficha_vigente.estado_ficha = ESTADO_OBSOLETO
-        ficha_vigente.usuario_ultima_actualizacion = usuario
-        ficha_vigente.fecha_actualizacion = now
-        self.db_session.add(ficha_vigente)
-
-        # Sincronizar estado en kitem de la ficha obsoleta
         await self.kitem_service.actualizar_estado_kitem(
             kitem_id=ficha_vigente.id_ficha,
             nuevo_estado=ESTADO_OBSOLETO,
@@ -1072,27 +1102,60 @@ class FichaService:
         await self.db_session.commit()
         await self.db_session.refresh(nueva_ficha)
 
+        # Capturar el id antes del try: si el análisis ensucia la sesión, leer
+        # nueva_ficha.id_ficha en el except dispararía un PendingRollbackError.
+        nueva_ficha_id = nueva_ficha.id_ficha
         try:
-            resultado_anomalias = await self.anomalias.analizar_ficha(
-                id_ficha=nueva_ficha.id_ficha,
+            # La nueva versión se crea directamente en Preliminar, saltándose la
+            # transición Borrador→Preliminar donde normalmente se genera el
+            # embedding. Hay que generarlo aquí: sin él, la detección de
+            # duplicados (D3) y la búsqueda semántica no funcionan para esta
+            # versión.
+            material = await self._validar_material(nueva_ficha.id_material_corporativo)
+            caract = nueva_ficha.caracteristicas or {}
+            campos_embedding = {
+                "material": material.nombre_corporativo,
+                "categoria": material.categoria or "",
+                "contenido": material.contenido or "",
+                "material_base": material.material_base or "",
+                "tipo_producto": material.tipo_producto or "",
+                "pais": nueva_ficha.pais,
+                "largo_mm": caract.get("dimensiones_largo_valor", ""),
+                "ancho_mm": caract.get("dimensiones_ancho_valor", ""),
+                "alto_mm": caract.get("dimensiones_alto_valor", ""),
+                "peso_g": caract.get("peso_valor", ""),
+            }
+            campos_embedding = {k: v for k, v in campos_embedding.items() if v not in (None, "", 0)}
+            await self.busqueda.asignar_embedding(
+                kitem_id=nueva_ficha_id,
+                campos_adicionales=campos_embedding,
                 usuario=usuario,
-                contexto="actualizacion_vigente",
+            )
+
+            resultado_anomalias = await self.anomalias.analizar_ficha(
+                id_ficha=nueva_ficha_id,
+                usuario=usuario,
+                contexto="actualizacion",
             )
             await self.db_session.commit()  # Commit para persistir anomalías detectadas
             nueva_ficha._anomalias = resultado_anomalias.anomalias  # Agregar anomalías al objeto ficha para respuesta
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"Error al analizar anomalías para ficha {nueva_ficha.id_ficha}: {e}")
+            logging.getLogger(__name__).warning(f"Error al analizar anomalías para ficha {nueva_ficha_id}: {e}")
             nueva_ficha._anomalias = []  # Respuesta sin anomalías si falla el análisis
 
         return nueva_ficha
     
     async def calcular_rangos_tipicos(self, id_material: UUID) -> dict:
         """Calcula rangos típicos de las fichas de un material."""
-        query = select(FichaTecnica).where(
-            and_(
-                FichaTecnica.id_material_corporativo == id_material,
-                FichaTecnica.estado_ficha.in_([ESTADO_VIGENTE, ESTADO_PRELIMINAR]),
+        query = (
+            select(FichaTecnica)
+            .join(KItem, FichaTecnica.id_ficha == KItem.id)
+            .where(
+                and_(
+                    FichaTecnica.id_material_corporativo == id_material,
+                    KItem.estado.in_([ESTADO_VIGENTE, ESTADO_PRELIMINAR]),
+                )
             )
         )
         result = await self.db_session.execute(query)

@@ -368,6 +368,20 @@ class FichaTecnicaWithMaterialSchema(BaseModel):
     class Config:
         from_attributes = True
 
+class FichaVersionSchema(BaseModel):
+    """Resumen de una versión dentro del linaje de una ficha."""
+    id_ficha: UUID
+    codigo_ficha_local: str | None = None
+    codigo_version: str | None = None
+    estado_ficha: str | None = None
+    usuario_ultima_actualizacion: str | None = None
+    fecha_registro: datetime | None = None
+    fecha_actualizacion: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class CambioEstadoRequest(BaseModel):
     nuevo_estado: str
     usuario_actualizacion: str

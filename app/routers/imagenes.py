@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.deps import get_session
+from app.core.security import get_usuario_actual
 from app.models.ficha import FichaTecnica
 
 router = APIRouter(prefix="/ficha", tags=["Imágenes de Fichas"])
@@ -196,6 +197,7 @@ async def subir_imagen(
     tipo: str = Form(..., description="Tipo de imagen: foto_producto o plano_mecanico"),
     archivo: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
+    usuario: dict = Depends(get_usuario_actual),
 ):
     """
     Sube una imagen para una ficha técnica.
@@ -278,8 +280,9 @@ async def subir_imagen(
 async def obtener_imagen(
     id_ficha: UUID,
     tipo: str,
+    usuario: dict = Depends(get_usuario_actual),
 ):
-    """Descarga/visualiza una imagen de la ficha."""
+    """Descarga/visualiza una imagen de la ficha. Requiere autenticación."""
     validar_tipo_imagen(tipo)
 
     ruta = buscar_imagen_existente(id_ficha, tipo)
@@ -302,6 +305,7 @@ async def eliminar_imagen(
     id_ficha: UUID,
     tipo: str,
     session: AsyncSession = Depends(get_session),
+    usuario: dict = Depends(get_usuario_actual),
 ):
     """Elimina una imagen de la ficha."""
     validar_tipo_imagen(tipo)

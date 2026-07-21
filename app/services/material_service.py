@@ -53,8 +53,6 @@ class MaterialService:
         return material
 
     async def crear(self, material_data: MaterialCreateSchema) -> MaterialComercial:
-        now = datetime.now()
-
         kitem = await self.kitem_service.crear_kitem(
             KItemCreateSchema(
                 ktype=KTYPE_MATERIAL_COMERCIAL,
@@ -84,10 +82,9 @@ class MaterialService:
             material_base=material_data.material_base,
             capacidad_nominal=material_data.capacidad_nominal,
             tipo_producto=material_data.tipo_producto,
-            estado_material=material_data.estado_material,
-            fecha_creacion=now,
-            fecha_actualizacion=now,
         )
+        # estado y fechas viven en kitem (única fuente de verdad)
+        material.kitem = kitem
         self.db_session.add(material)
         await self.db_session.flush()
 

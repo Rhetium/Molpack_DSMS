@@ -7,6 +7,11 @@ env/
 __pycache__/
 *.py[cod]
 
+# Pruebas
+.pytest_cache/
+.coverage
+htmlcov/
+
 # Secretos y configuración local — NUNCA commitear credenciales
 .env
 .env.*
@@ -15,6 +20,9 @@ __pycache__/
 # Modelos ML entrenados (se regeneran con POST /anomalias/entrenar)
 app/ml_models/*.pkl
 app/ml_models/*.joblib
+
+# Respaldos de base de datos (pg_dump)
+backups/
 
 # Frontend
 frontend/node_modules/

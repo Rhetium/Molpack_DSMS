@@ -11,6 +11,7 @@ from app.schemas.ficha import (
     FichaTecnicaCreateSchema,
     FichaTecnicaWithMaterialSchema,
     FichaTecnicaUpdateSchema,
+    FichaVersionSchema,
     CambioEstadoRequest,
 )
 
@@ -74,6 +75,15 @@ async def obtener_ficha(
     service: FichaService = Depends(get_ficha_service),
 ):
     return await service.obtener(id_ficha)
+
+
+@router.get("/{id_ficha}/versiones", response_model=List[FichaVersionSchema])
+async def listar_versiones_ficha(
+    id_ficha: UUID,
+    service: FichaService = Depends(get_ficha_service),
+):
+    """Lista todas las versiones del linaje de la ficha (ordenadas por versión)."""
+    return await service.listar_versiones(id_ficha)
 
 
 @router.post("/{id_ficha}/aprobar-inicial", response_model=FichaTecnicaSchema)

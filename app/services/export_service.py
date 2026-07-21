@@ -33,6 +33,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from app.models.ficha import FichaTecnica
 from app.models.material import MaterialComercial
+from app.models.kitem import KItem
 
 
 VERDE_OSCURO = HexColor('#044926')
@@ -448,7 +449,9 @@ class ExportService:
     async def exportar_fichas_excel(self) -> bytes:
         """Exporta listado de fichas a Excel."""
         result = await self.db_session.execute(
-            select(FichaTecnica).where(FichaTecnica.estado_ficha.in_(["Preliminar", "Vigente"]))
+            select(FichaTecnica)
+            .join(KItem, FichaTecnica.id_ficha == KItem.id)
+            .where(KItem.estado.in_(["Preliminar", "Vigente"]))
         )
         fichas = result.scalars().all()
 
