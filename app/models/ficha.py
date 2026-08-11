@@ -57,7 +57,7 @@ class FichaTecnica(Base):
         lazy="joined",
     )
 
-    # --- Proxies hacia kitem (compatibilidad de lectura/escritura) ---
+    # Proxies hacia kitem (compatibilidad de lectura/escritura)
     @property
     def estado_ficha(self):
         return self.kitem.estado if self.kitem else None

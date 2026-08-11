@@ -1,11 +1,19 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
+python-multipart==0.0.32  # requerido por FastAPI para endpoints con Form/File
 
 sqlalchemy==2.0.36
 asyncpg==0.30.0           # driver async para PostgreSQL
 
 pydantic==2.9.0
 python-dotenv==1.0.1      # para leer variables de entorno (.env) luego
+
+pyjwt==2.9.0              # firma/validación de tokens JWT (app/core/security.py)
+ldap3==2.9.1              # autenticación contra Active Directory (import opcional)
+
+reportlab==5.0.0          # exportación a PDF (app/services/export_service.py)
+openpyxl==3.1.5           # exportación a Excel
+pypdf==6.14.2             # lectura/merge de PDFs
 
 pycountry==22.3.5          # para manejo de países e idiomas
 scikit-learn==1.5.0

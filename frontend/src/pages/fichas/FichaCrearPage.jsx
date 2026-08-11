@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Save, Check, Sparkles, Info } from 'lucide-react';
 import api from '../../../lib/api';
-import { useAuth } from '../../../lib/auth';
 import { AsistenteIA, IndicadorProgreso } from './AsistenteIA';
 import { PAISES } from './paises';
 import { tieneValores } from './fichaCampos';
@@ -13,7 +12,7 @@ const PASOS = [
   { id: 1, titulo: 'Características', descripcion: 'Dimensiones, peso y propiedades físicas' },
   { id: 2, titulo: 'Contenido', descripcion: 'Propiedades según tipo de contenido' },
   { id: 3, titulo: 'Empaque y Estiba', descripcion: 'Configuración de empaque' },
-  { id: 4, titulo: 'Microbiología', descripcion: 'Parámetros microbiológicos y metales pesados' },
+  { id: 4, titulo: 'Inocuidad', descripcion: 'Parámetros microbiológicos y metales pesados' },
   { id: 5, titulo: 'Manejo y Disposición', descripcion: 'Almacenamiento, transporte y uso' },
 ];
 
@@ -29,7 +28,6 @@ const CAMPOS_CARACTERISTICAS_BASE = [
 
 export default function FichaCrearPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [paso, setPaso] = useState(0);
   const [materiales, setMateriales] = useState([]);
   const [guardando, setGuardando] = useState(false);
@@ -205,7 +203,7 @@ export default function FichaCrearPage() {
       id_material_corporativo: materialId,
       codigo_material_local: codigoLocal || null,
       nombre_local_material: nombreLocal || null,
-      usuario_creador: user?.usuario || 'sistema',
+      // usuario_creador lo resuelve el backend desde el token JWT.
       pais: pais || null,
       caracteristicas: tieneValores(caracteristicas) ? limpiarSeccion(caracteristicas) : null,
       caracteristicas_contenido: tieneValores(contenido) ? limpiarSeccion(contenido) : null,

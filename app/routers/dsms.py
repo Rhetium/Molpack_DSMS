@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_session
+from app.core.security import get_usuario_actual, get_usuario_nombre
 from app.services.kitem_service import KItemService
 from app.schemas.kitem import KItemSchema, KItemLiteSchema
 from app.schemas.kitem_relacion import (
@@ -13,7 +14,11 @@ from app.schemas.kitem_relacion import (
     KItemRelacionDetalleSchema,
 )
 
-router = APIRouter(prefix="/dsms", tags=["dataspace"])
+router = APIRouter(
+    prefix="/dsms",
+    tags=["dataspace"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
 
 def get_kitem_service(
@@ -51,7 +56,10 @@ async def obtener_grafo_kitem(
 async def crear_relacion(
     data: KItemRelacionCreateSchema,
     service: KItemService = Depends(get_kitem_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
+    # La identidad la impone el token, no el cuerpo de la petición.
+    data.usuario_creador = usuario
     return await service.crear_relacion(data)
 
 
@@ -90,5 +98,6 @@ async def obtener_relaciones(
 async def eliminar_relacion(
     relacion_id: UUID,
     service: KItemService = Depends(get_kitem_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
-    await service.eliminar_relacion(relacion_id)
+    await service.eliminar_relacion(relacion_id, usuario=usuario)

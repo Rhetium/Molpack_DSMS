@@ -1,18 +1,3 @@
-"""
-Servicio principal de detección de anomalías — Orquestador.
-
-Coordina los diferentes detectores (numérico, unidades, clasificación,
-duplicados) y persiste los resultados en el repositorio histórico.
-
-Fase 1: Detección basada en estadísticas y reglas.
-Fase 2 (futura): Integración con Isolation Forest, One-Class SVM, Autoencoders.
-
-Uso:
-    anomalia_svc = AnomaliaService(db_session)
-    resultado = await anomalia_svc.analizar_ficha(id_ficha, usuario)
-    # resultado.anomalias → lista de anomalías detectadas
-"""
-
 import logging
 from uuid import UUID
 from datetime import datetime
@@ -77,9 +62,6 @@ class AnomaliaService:
         self.busqueda = BusquedaSemanticaService(db_session)
         self.ml = MLAnomaliaService(db_session)
 
-    # =========================================================
-    # API PÚBLICA
-    # =========================================================
 
     async def analizar_ficha(
         self,
@@ -87,23 +69,7 @@ class AnomaliaService:
         usuario: str,
         contexto: str = CONTEXTO_CREACION,
     ) -> ResultadoAnalisis:
-        """
-        Analiza una ficha técnica en busca de anomalías.
 
-        Ejecuta todos los detectores:
-        1. Valores atípicos en campos numéricos
-        2. Unidades inconsistentes
-        3. Duplicados semánticos
-        4. Clasificación cruzada (via material asociado)
-
-        Args:
-            id_ficha: UUID de la ficha a analizar.
-            usuario: Usuario que solicita el análisis.
-            contexto: 'creacion', 'actualizacion' o 'analisis_batch'.
-
-        Returns:
-            ResultadoAnalisis con todas las anomalías encontradas.
-        """
         # Obtener ficha + material asociado
         ficha = await self._obtener_ficha(id_ficha)
         material = await self._obtener_material(ficha.id_material_corporativo)
@@ -127,8 +93,6 @@ class AnomaliaService:
         )
 
         # --- Detector 3: Duplicados semánticos ---
-        # Se excluyen fichas del mismo material: es normal que compartan
-        # alta similitud; solo alerta si materiales distintos son casi idénticos.
         duplicados = await self._detectar_duplicados_semanticos(
             kitem_id=id_ficha,
             ktype=KTYPE_FICHA_TECNICA,
@@ -162,7 +126,6 @@ class AnomaliaService:
             self._detectar_rango_categoria(ficha=ficha, material=material)
         )
 
-        # Persistir anomalías en el repositorio histórico
         for anomalia in anomalias:
             await self._persistir_anomalia(
                 kitem_id=id_ficha,
@@ -202,21 +165,7 @@ class AnomaliaService:
         usuario: str,
         contexto: str = CONTEXTO_CREACION,
     ) -> ResultadoAnalisis:
-        """
-        Analiza un material comercial en busca de anomalías.
 
-        Detectores:
-        1. Duplicados semánticos
-        2. Clasificación cruzada
-
-        Args:
-            id_material: UUID del material a analizar.
-            usuario: Usuario que solicita el análisis.
-            contexto: 'creacion', 'actualizacion' o 'analisis_batch'.
-
-        Returns:
-            ResultadoAnalisis con las anomalías encontradas.
-        """
         material = await self._obtener_material(id_material)
 
         anomalias: list[AnomaliaDetectada] = []
@@ -265,21 +214,13 @@ class AnomaliaService:
 
         return resultado
 
-    # =========================================================
-    # DETECTOR 1: VALORES ATÍPICOS
-    # =========================================================
 
     def _detectar_valores_atipicos(
         self,
         ficha: FichaTecnica,
         fichas_referencia: list[FichaTecnica],
     ) -> list[AnomaliaDetectada]:
-        """
-        Compara valores numéricos de la ficha contra las estadísticas
-        de fichas del mismo tipo/categoría.
 
-        Usa Z-score cuando hay suficientes muestras (>= MIN_MUESTRAS).
-        """
         anomalias = []
 
         if len(fichas_referencia) < MIN_MUESTRAS_ESTADISTICAS:
@@ -323,7 +264,7 @@ class AnomaliaService:
                 std = varianza ** 0.5
 
                 if std == 0:
-                    # Todos los valores son iguales; si el nuevo difiere, es anómalo
+
                     if valor != media:
                         anomalias.append(AnomaliaDetectada(
                             tipo_anomalia=ANOMALIA_VALOR_ATIPICO,
@@ -380,10 +321,6 @@ class AnomaliaService:
                 ))
 
         return anomalias
-
-    # =========================================================
-    # DETECTOR 2: UNIDADES INCONSISTENTES
-    # =========================================================
 
     def _detectar_unidades_inconsistentes(
         self,
@@ -469,10 +406,6 @@ class AnomaliaService:
 
         return anomalias
 
-    # =========================================================
-    # DETECTOR 3: DUPLICADOS SEMÁNTICOS
-    # =========================================================
-
     async def _detectar_duplicados_semanticos(
         self,
         kitem_id: UUID,
@@ -545,25 +478,13 @@ class AnomaliaService:
 
         return anomalias
 
-    # =========================================================
-    # DETECTOR 4: CLASIFICACIÓN CRUZADA
-    # =========================================================
 
     async def _detectar_clasificacion_cruzada(
         self,
         material: MaterialComercial,
         ficha: FichaTecnica | None = None,
     ) -> list[AnomaliaDetectada]:
-        """
-        Detecta cuando un material parece pertenecer a otra categoría.
 
-        Combina dos señales independientes:
-        1. Semántica: similitud del nombre/contenido del material con
-           materiales de otras categorías.
-        2. Dimensional (si se pasa ficha): las dimensiones de la ficha
-           encajan dentro de los rangos de la categoría sugerida y no
-           en la declarada → evidencia más fuerte, severidad crítica.
-        """
         anomalias = []
 
         try:
@@ -599,7 +520,6 @@ class AnomaliaService:
         material: MaterialComercial,
         ficha: FichaTecnica | None,
     ) -> AnomaliaDetectada | None:
-        """Evalúa un único resultado de búsqueda para D4 y retorna anomalía o None."""
         kitem_similar = resultado["kitem"]
         similitud     = resultado["similitud"]
 
@@ -660,10 +580,6 @@ class AnomaliaService:
         cat_sugerida: str,
         cat_actual: str,
     ) -> bool:
-        """
-        Devuelve True si las dimensiones de la ficha encajan en cat_sugerida
-        pero no en cat_actual (ambas deben tener rangos definidos).
-        """
         rangos_sug = rangos_para_categoria(cat_sugerida)
         rangos_dec = rangos_para_categoria(cat_actual)
         if rangos_sug is None or rangos_dec is None:
@@ -682,23 +598,13 @@ class AnomaliaService:
         )
         return encaja and fuera
 
-    # =========================================================
-    # DETECTOR 5: PERFIL NUMÉRICO CRUZADO
-    # =========================================================
 
     async def _detectar_perfil_numerico_cruzado(
         self,
         ficha: FichaTecnica,
         material: MaterialComercial,
     ) -> list[AnomaliaDetectada]:
-        """
-        Compara el perfil numérico de una ficha contra los promedios
-        de cada categoría. Si los valores encajan mejor en otra categoría,
-        genera una alerta.
-
-        Ejemplo: Ficha de "Bandeja 1x30" (categoría Bandejas) cuyos valores
-        numéricos se parecen más a los de categoría "Separador".
-        """
+ 
         anomalias = []
         categoria_actual = material.categoria
 
@@ -779,23 +685,12 @@ class AnomaliaService:
 
         return anomalias
 
-    # =========================================================
-    # DETECTOR 6: ISOLATION FOREST (ML MULTIVARIADO)
-    # =========================================================
-
     def _detectar_ml_multivariado(
         self,
         ficha: FichaTecnica,
         material: MaterialComercial,
     ) -> list[AnomaliaDetectada]:
-        """
-        Usa Isolation Forest para detectar anomalías en el vector numérico
-        combinado de la ficha. A diferencia del Detector 1 (por campo),
-        este analiza la combinación de todos los campos juntos.
 
-        Solo actúa si hay un modelo entrenado disponible.
-        No falla si no hay modelo — simplemente retorna vacío.
-        """
         if not self.ml.modelo_disponible(material.categoria):
             return []
 
@@ -837,10 +732,6 @@ class AnomaliaService:
             },
         )]
 
-    # =========================================================
-    # DETECTOR 7: RANGOS DIMENSIONALES POR CATEGORÍA
-    # =========================================================
-
     @staticmethod
     def _anomalia_rango_campo(
         campo: str,
@@ -850,7 +741,6 @@ class AnomaliaService:
         unidad: str,
         categoria: str,
     ) -> AnomaliaDetectada:
-        """Construye una AnomaliaDetectada para un campo fuera de rango."""
         nombre = campo.replace("dimensiones_", "").replace("_valor", "").replace("_", " ").title()
         severidad = (
             SEVERIDAD_CRITICA
@@ -883,11 +773,6 @@ class AnomaliaService:
         ficha: FichaTecnica,
         material: MaterialComercial,
     ) -> list[AnomaliaDetectada]:
-        """
-        Valida que las dimensiones clave de la ficha estén dentro de los
-        rangos esperados para su categoría. No requiere datos históricos.
-        Solo aplica a categorías definidas en RANGOS_CATEGORIA.
-        """
         categoria = material.categoria
         rangos = rangos_para_categoria(categoria)
         if not rangos:
@@ -911,10 +796,6 @@ class AnomaliaService:
         self,
         excluir_ficha_id: UUID | None = None,
     ) -> dict:
-        """
-        Calcula el centroide (media) y desviación estándar de los
-        valores numéricos agrupados por categoría del material.
-        """
         query = (
             select(FichaTecnica, MaterialComercial)
             .join(
@@ -975,10 +856,6 @@ class AnomaliaService:
         return perfiles
 
     def _extraer_vector_numerico(self, ficha: FichaTecnica) -> dict:
-        """
-        Extrae un vector de valores numéricos de una ficha.
-        Combina campos de caracteristicas, caracteristicas_contenido y empaque.
-        """
         vector = {}
         secciones = [
             (ficha.caracteristicas, CAMPOS_CARACTERISTICAS),
@@ -1002,10 +879,6 @@ class AnomaliaService:
         centroide: dict,
         std: dict,
     ) -> float | None:
-        """
-        Distancia euclidiana normalizada por desviación estándar
-        entre un vector y un centroide. Solo usa campos comunes.
-        """
         campos_comunes = set(vector.keys()) & set(centroide.keys())
         if not campos_comunes:
             return None
@@ -1025,15 +898,8 @@ class AnomaliaService:
             return None
         return (suma / n) ** 0.5
 
-    # =========================================================
-    # DEBUG (solo desarrollo — no exponer en producción)
-    # =========================================================
-
     async def analizar_debug(self, id_ficha: UUID) -> dict:
-        """
-        Ejecuta cada detector de forma aislada y devuelve sus datos
-        intermedios para diagnóstico. No persiste anomalías.
-        """
+
         ficha   = await self._obtener_ficha(id_ficha)
         material = await self._obtener_material(ficha.id_material_corporativo)
         fichas_ref = await self._obtener_fichas_referencia(
@@ -1324,10 +1190,6 @@ class AnomaliaService:
             },
         }
 
-    # =========================================================
-    # REPOSITORIO HISTÓRICO
-    # =========================================================
-
     async def _persistir_anomalia(
         self,
         kitem_id: UUID,
@@ -1336,7 +1198,7 @@ class AnomaliaService:
         usuario: str,
         contexto: str,
     ) -> AnomaliaRegistro:
-        """Guarda una anomalía detectada en el repositorio histórico."""
+
         registro = AnomaliaRegistro(
             kitem_id=kitem_id,
             ktype=ktype,
@@ -1364,7 +1226,6 @@ class AnomaliaService:
         usuario: str,
         nota: str | None = None,
     ) -> AnomaliaRegistro:
-        """Marca una anomalía como aceptada, descartada o corregida."""
         result = await self.db_session.execute(
             select(AnomaliaRegistro).where(AnomaliaRegistro.id == id_anomalia)
         )
@@ -1390,7 +1251,6 @@ class AnomaliaService:
         estado: str | None = None,
         limite: int = 50,
     ) -> list[AnomaliaRegistro]:
-        """Consulta anomalías históricas con filtros opcionales."""
         query = select(AnomaliaRegistro)
 
         conditions = []
@@ -1411,10 +1271,6 @@ class AnomaliaService:
         query = query.order_by(AnomaliaRegistro.fecha_deteccion.desc()).limit(limite)
         result = await self.db_session.execute(query)
         return result.scalars().all()
-
-    # =========================================================
-    # HELPERS INTERNOS
-    # =========================================================
 
     async def _obtener_ficha(self, id_ficha: UUID) -> FichaTecnica:
         result = await self.db_session.execute(
@@ -1443,17 +1299,6 @@ class AnomaliaService:
         categoria: str | None,
         excluir_id: UUID | None = None,
     ) -> list[FichaTecnica]:
-        """
-        Obtiene fichas de la misma CATEGORÍA para usarlas como referencia
-        estadística en D1, D2 y D5.
-
-        Se agrupa solo por categoría (no por contenido) para maximizar el
-        número de muestras. Con pocas fichas en catálogo, filtrar también
-        por contenido deja grupos de 1-2 fichas, insuficientes para
-        cualquier cálculo estadístico.
-        A medida que crezca el catálogo, puede considerarse reintroducir
-        el filtro por contenido para afinar la comparación.
-        """
         query = (
             select(FichaTecnica)
             .join(
@@ -1481,7 +1326,6 @@ class AnomaliaService:
         nombre_seccion: str,
         campo: str,
     ) -> list:
-        """Extrae valores de un campo específico de una lista de fichas."""
         valores = []
         for ficha in fichas:
             datos = getattr(ficha, nombre_seccion)

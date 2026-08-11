@@ -42,9 +42,9 @@ export default function AnomaliasPage() {
 
   async function resolverAnomalia(id, estado) {
     try {
+      // La identidad la resuelve el backend desde el token JWT.
       await api.patch(`/anomalias/${id}/resolver`, {
         estado,
-        usuario: 'marco.agrusa',
         nota: null,
       });
       cargar();

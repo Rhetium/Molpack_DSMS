@@ -13,7 +13,8 @@ class MaterialCreateSchema(BaseModel):
     capacidad_nominal: str | None = None
     tipo_producto: str | None = None
     estado_material: str
-    usuario_creador: str
+    # Sobrescrito por el router con la identidad del token JWT.
+    usuario_creador: str | None = None
 
 
 class AnomaliaResumen(BaseModel):
@@ -67,9 +68,11 @@ class MaterialUpdateSchema(BaseModel):
     capacidad_nominal: str | None = None
     tipo_producto: str | None = None
     estado_material: str | None = None
-    usuario: str
+    # Ignorado: la identidad se toma del token JWT (get_usuario_nombre).
+    usuario: str | None = None
 
 
 class CambioEstadoMaterialRequest(BaseModel):
     estado_material: str
-    usuario: str
+    # Ignorado: la identidad se toma del token JWT (get_usuario_nombre).
+    usuario: str | None = None

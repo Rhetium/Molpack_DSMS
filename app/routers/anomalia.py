@@ -15,8 +15,13 @@ from app.schemas.anomalia import (
     AnomaliaListResponse,
 )
 from app.core.anomalia_constant import ESTADOS_RESOLUCION_VALIDOS
+from app.core.security import get_usuario_actual, get_usuario_nombre
 
-router = APIRouter(prefix="/anomalias", tags=["Anomalías"])
+router = APIRouter(
+    prefix="/anomalias",
+    tags=["Anomalías"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
 
 def get_anomalia_service(session: AsyncSession = Depends(get_session)) -> AnomaliaService:
@@ -28,10 +33,6 @@ async def debug_detectores(
     id_ficha: UUID,
     service: AnomaliaService = Depends(get_anomalia_service),
 ):
-    """
-    [SOLO DESARROLLO] Ejecuta los 6 detectores sobre una ficha y devuelve
-    los datos intermedios de cada uno sin persistir anomalías.
-    """
     return await service.analizar_debug(id_ficha)
 
 
@@ -47,10 +48,11 @@ async def entrenar_modelos_ml(
 async def analizar_ficha(
     request: AnalizarFichaRequest,
     service: AnomaliaService = Depends(get_anomalia_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     return await service.analizar_ficha(
         id_ficha=request.id_ficha,
-        usuario=request.usuario,
+        usuario=usuario,
     )
 
 
@@ -58,10 +60,11 @@ async def analizar_ficha(
 async def analizar_material(
     request: AnalizarMaterialRequest,
     service: AnomaliaService = Depends(get_anomalia_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     return await service.analizar_material(
         id_material=request.id_material,
-        usuario=request.usuario,
+        usuario=usuario,
     )
 
 
@@ -124,6 +127,7 @@ async def resolver_anomalia(
     id_anomalia: UUID,
     request: ResolverAnomaliaRequest,
     service: AnomaliaService = Depends(get_anomalia_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     if request.estado not in ESTADOS_RESOLUCION_VALIDOS:
         from fastapi import HTTPException
@@ -136,7 +140,7 @@ async def resolver_anomalia(
     registro = await service.resolver_anomalia(
         id_anomalia=id_anomalia,
         nuevo_estado=request.estado,
-        usuario=request.usuario,
+        usuario=usuario,
         nota=request.nota,
     )
     await service.db_session.commit()

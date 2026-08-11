@@ -20,8 +20,13 @@ from app.core.dsms_constants import (
     ESTADO_VIGENTE,
     ESTADO_OBSOLETO,
 )
+from app.core.security import get_usuario_actual, get_usuario_nombre
 
-router = APIRouter(prefix="/ficha", tags=["ficha"])
+router = APIRouter(
+    prefix="/ficha",
+    tags=["ficha"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
 def get_ficha_service(
     session: AsyncSession = Depends(get_session),
@@ -40,7 +45,10 @@ async def listar_fichas(
 async def crear_ficha(
     ficha_data: FichaTecnicaCreateSchema,
     service: FichaService = Depends(get_ficha_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
+    # La identidad la impone el token, no el cuerpo de la petición.
+    ficha_data.usuario_creador = usuario
     ficha = await service.crear(ficha_data)
     resultado = FichaTecnicaSchema.model_validate(ficha)
     if hasattr(ficha,'_anomalias') and ficha._anomalias:
@@ -82,7 +90,6 @@ async def listar_versiones_ficha(
     id_ficha: UUID,
     service: FichaService = Depends(get_ficha_service),
 ):
-    """Lista todas las versiones del linaje de la ficha (ordenadas por versión)."""
     return await service.listar_versiones(id_ficha)
 
 
@@ -90,9 +97,10 @@ async def listar_versiones_ficha(
 async def aprobar_inicial(
     id_ficha: UUID,
     service: FichaService = Depends(get_ficha_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     return await service.cambiar_estado(
-        id_ficha, ESTADO_PRELIMINAR, usuario_actualizacion="sistema"
+        id_ficha, ESTADO_PRELIMINAR, usuario_actualizacion=usuario
     )
 
 
@@ -100,9 +108,10 @@ async def aprobar_inicial(
 async def publicar_ficha(
     id_ficha: UUID,
     service: FichaService = Depends(get_ficha_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     return await service.cambiar_estado(
-        id_ficha, ESTADO_VIGENTE, usuario_actualizacion="sistema"
+        id_ficha, ESTADO_VIGENTE, usuario_actualizacion=usuario
     )
 
 
@@ -110,9 +119,10 @@ async def publicar_ficha(
 async def archivar_ficha(
     id_ficha: UUID,
     service: FichaService = Depends(get_ficha_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     return await service.cambiar_estado(
-        id_ficha, ESTADO_OBSOLETO, usuario_actualizacion="sistema"
+        id_ficha, ESTADO_OBSOLETO, usuario_actualizacion=usuario
     )
 
 
@@ -120,20 +130,22 @@ async def archivar_ficha(
 async def crear_nueva_version(
     id_ficha: UUID,
     service: FichaService = Depends(get_ficha_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
-    return await service.crear_nueva_version(id_ficha, usuario="sistema")
+    return await service.crear_nueva_version(id_ficha, usuario=usuario)
 
 @router.patch("/{id_ficha}", response_model=FichaTecnicaSchema)
 async def actualizar_ficha(
     id_ficha: UUID,
     datos: FichaTecnicaUpdateSchema,
     service: FichaService = Depends(get_ficha_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     datos_dict = datos.model_dump(exclude={"usuario_actualizacion"}, exclude_none=True)
     ficha = await service.actualizar(
         id_ficha=id_ficha,
         datos_actualizacion=datos_dict,
-        usuario=datos.usuario_actualizacion,
+        usuario=usuario,
     )
     resultado = FichaTecnicaSchema.model_validate(ficha)
     if hasattr(ficha, '_anomalias') and ficha._anomalias:
@@ -154,11 +166,12 @@ async def cambiar_estado_ficha(
     id_ficha: UUID,
     request: CambioEstadoRequest,
     service: FichaService = Depends(get_ficha_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     return await service.cambiar_estado(
         id_ficha=id_ficha,
         nuevo_estado=request.nuevo_estado,
-        usuario_actualizacion=request.usuario_actualizacion,
+        usuario_actualizacion=usuario,
     )
 
 @router.get("/{id_material}/rangos-tipicos")
@@ -166,9 +179,5 @@ async def obtener_rangos_tipicos(
     id_material: UUID,
     service: FichaService = Depends(get_ficha_service),
 ):
-    """
-    Calcula rangos típicos de características basándose en fichas
-    existentes del mismo material. Retorna min, max, promedio
-    y cantidad de fichas usadas para el cálculo.
-    """
+
     return await service.calcular_rangos_tipicos(id_material)

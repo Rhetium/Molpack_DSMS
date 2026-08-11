@@ -45,7 +45,6 @@ export default function MaterialCrearPage() {
     capacidad_nominal: '',
     tipo_producto: '',
     estado_material: 'Activo',
-    usuario_creador: 'marco.agrusa',
   });
 
   function handleChange(e) {
@@ -72,7 +71,7 @@ export default function MaterialCrearPage() {
       });
       payload.nombre_corporativo = form.nombre_corporativo;
       payload.estado_material = form.estado_material || 'Activo';
-      payload.usuario_creador = form.usuario_creador;
+      // usuario_creador lo resuelve el backend desde el token JWT.
 
       const res = await api.post('/material', payload);
 

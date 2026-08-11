@@ -1,14 +1,3 @@
-"""
-Servicio de Auditoría — Trazabilidad automática del Dataspace.
-
-Este servicio es INTERNO — no se llama desde la API directamente.
-Los servicios de dominio (FichaService, MaterialService, KItemService)
-lo usan para registrar eventos automáticamente.
-
-Implementa el requisito de "Provenance and traceability" del paper DSMS:
-cada acción relevante queda documentada de forma inmutable.
-"""
-
 from uuid import UUID
 from datetime import datetime
 
@@ -34,10 +23,7 @@ class AuditoriaService:
         estado_nuevo: str | None = None,
         detalles: dict | None = None,
     ) -> KItemAuditoria:
-        """
-        Registra un evento de auditoría.
-        Usado internamente por los servicios de dominio.
-        """
+
         evento = KItemAuditoria(
             kitem_id=kitem_id,
             ktype=ktype,
@@ -57,7 +43,6 @@ class AuditoriaService:
         kitem_id: UUID,
         accion: str | None = None,
     ) -> list[KItemAuditoria]:
-        """Obtiene el historial de auditoría de un k-item."""
         query = select(KItemAuditoria).where(
             KItemAuditoria.kitem_id == kitem_id
         )
@@ -76,7 +61,6 @@ class AuditoriaService:
         usuario: str | None = None,
         categoria: str | None = None,
     ) -> list[KItemAuditoria]:
-        """Obtiene la actividad reciente del dataspace con filtros opcionales."""
         query = select(KItemAuditoria)
         conditions = []
 

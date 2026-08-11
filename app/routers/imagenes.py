@@ -1,21 +1,5 @@
-"""
-Servicio y Router de Imágenes — Upload de fotos de producto y planos mecánicos.
-
-Estándares:
-- Máximo 2 imágenes por ficha: foto_producto y plano_mecanico
-- Formatos: JPG, PNG
-- Tamaño máximo: 2MB por imagen
-- Resolución: mínimo 400x400px, máximo 4000x4000px
-- Almacenamiento: filesystem en /uploads/productos/{id_ficha}/
-- La ruta se guarda en ficha_tecnica.caracteristicas.imagenes (JSONB)
-
-Endpoints:
-    POST /ficha/{id_ficha}/imagen      — Sube una imagen
-    GET  /ficha/{id_ficha}/imagen/{tipo} — Descarga una imagen
-    DELETE /ficha/{id_ficha}/imagen/{tipo} — Elimina una imagen
-"""
-
 import os
+import shutil
 import uuid
 from pathlib import Path
 from uuid import UUID
@@ -30,44 +14,33 @@ from app.core.deps import get_session
 from app.core.security import get_usuario_actual
 from app.models.ficha import FichaTecnica
 
-router = APIRouter(prefix="/ficha", tags=["Imágenes de Fichas"])
+router = APIRouter(
+    prefix="/ficha",
+    tags=["Imágenes de Fichas"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
-# ============================================================
-# CONFIGURACIÓN
-# ============================================================
-
-# Carpeta base para almacenar imágenes
 UPLOAD_DIR = Path("uploads/productos")
 
-# Tipos de imagen permitidos por ficha
 TIPOS_IMAGEN = {"foto_producto", "plano_mecanico"}
 
-# Formatos permitidos
 FORMATOS_PERMITIDOS = {"image/jpeg", "image/png"}
 EXTENSIONES_PERMITIDAS = {".jpg", ".jpeg", ".png"}
 
-# Límites
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 MIN_DIMENSION = 100    # px
 MAX_DIMENSION = 8000   # px
 
-# Dimensiones más permisivas para planos técnicos (escaneos de A3/A2 a 300 DPI)
 MAX_DIMENSION_PLANO = 8000  # px
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
 def get_upload_path(id_ficha: UUID, tipo: str, extension: str) -> Path:
-    """Genera la ruta de almacenamiento para una imagen."""
     dir_ficha = UPLOAD_DIR / str(id_ficha)
     dir_ficha.mkdir(parents=True, exist_ok=True)
     return dir_ficha / f"{tipo}{extension}"
 
 
 def validar_tipo_imagen(tipo: str) -> None:
-    """Valida que el tipo de imagen sea válido."""
     if tipo not in TIPOS_IMAGEN:
         raise HTTPException(
             status_code=400,
@@ -76,15 +49,12 @@ def validar_tipo_imagen(tipo: str) -> None:
 
 
 async def validar_archivo(file: UploadFile) -> bytes:
-    """Valida formato, tamaño y lee el contenido del archivo."""
-    # Validar formato por content_type
     if file.content_type not in FORMATOS_PERMITIDOS:
         raise HTTPException(
             status_code=400,
             detail=f"Formato no permitido: {file.content_type}. Solo se aceptan JPG y PNG.",
         )
 
-    # Validar extensión del nombre
     ext = Path(file.filename).suffix.lower() if file.filename else ""
     if ext not in EXTENSIONES_PERMITIDAS:
         raise HTTPException(
@@ -92,10 +62,8 @@ async def validar_archivo(file: UploadFile) -> bytes:
             detail=f"Extensión no permitida: {ext}. Solo se aceptan .jpg, .jpeg, .png",
         )
 
-    # Leer contenido
     contenido = await file.read()
 
-    # Validar tamaño
     if len(contenido) > MAX_FILE_SIZE:
         tamano_mb = len(contenido) / (1024 * 1024)
         raise HTTPException(
@@ -110,25 +78,18 @@ async def validar_archivo(file: UploadFile) -> bytes:
 
 
 def validar_dimensiones(contenido: bytes) -> tuple[int, int]:
-    """
-    Valida las dimensiones de la imagen sin dependencias externas.
-    Lee los headers del archivo para obtener ancho y alto.
-    """
-    # Detectar PNG
     if contenido[:8] == b'\x89PNG\r\n\x1a\n':
         if len(contenido) < 24:
             raise HTTPException(status_code=400, detail="Archivo PNG corrupto.")
         width = int.from_bytes(contenido[16:20], 'big')
         height = int.from_bytes(contenido[20:24], 'big')
 
-    # Detectar JPEG
     elif contenido[:2] == b'\xff\xd8':
         width, height = _jpeg_dimensions(contenido)
 
     else:
         raise HTTPException(status_code=400, detail="Formato de imagen no reconocido.")
 
-    # Validar dimensiones
     if width < MIN_DIMENSION or height < MIN_DIMENSION:
         raise HTTPException(
             status_code=400,
@@ -149,14 +110,12 @@ _JPEG_NO_LENGTH = frozenset([0xD8, 0xD9, *range(0xD0, 0xD8)])  # SOI, EOI, RST0-
 
 
 def _jpeg_next_marker(data: bytes, i: int) -> tuple[int, int]:
-    """Avanza al siguiente marcador JPEG; retorna (marker, pos_tras_marker_byte)."""
     while i < len(data) and data[i] == 0xFF:
         i += 1
     return (data[i], i + 1) if i < len(data) else (0, i)
 
 
 def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
-    """Extrae dimensiones de un JPEG leyendo markers SOF (todos los perfiles)."""
     i = 2
     while i + 3 < len(data):
         marker, i = _jpeg_next_marker(data, i)
@@ -176,7 +135,7 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int]:
 
 
 def buscar_imagen_existente(id_ficha: UUID, tipo: str) -> Path | None:
-    """Busca si ya existe una imagen de este tipo para la ficha."""
+
     dir_ficha = UPLOAD_DIR / str(id_ficha)
     if not dir_ficha.exists():
         return None
@@ -187,9 +146,30 @@ def buscar_imagen_existente(id_ficha: UUID, tipo: str) -> Path | None:
     return None
 
 
-# ============================================================
-# ENDPOINTS
-# ============================================================
+def clonar_imagenes_ficha(
+    id_origen: UUID, id_destino: UUID, caracteristicas: dict | None
+) -> dict | None:
+
+    if not caracteristicas:
+        return caracteristicas
+
+    imagenes = caracteristicas.get("imagenes")
+    if not imagenes:
+        return caracteristicas
+
+    imagenes_nuevas: dict = {}
+    for tipo, info in imagenes.items():
+        origen = buscar_imagen_existente(id_origen, tipo)
+        if not origen:
+            # No hay archivo físico en el origen; conservar metadata tal cual.
+            imagenes_nuevas[tipo] = info
+            continue
+        destino = get_upload_path(id_destino, tipo, origen.suffix)
+        shutil.copy2(origen, destino)
+        imagenes_nuevas[tipo] = {**info, "ruta": str(destino)}
+
+    return {**caracteristicas, "imagenes": imagenes_nuevas}
+
 
 @router.post("/{id_ficha}/imagen")
 async def subir_imagen(
@@ -199,17 +179,8 @@ async def subir_imagen(
     session: AsyncSession = Depends(get_session),
     usuario: dict = Depends(get_usuario_actual),
 ):
-    """
-    Sube una imagen para una ficha técnica.
 
-    Tipos permitidos: foto_producto, plano_mecanico
-    Formatos: JPG, PNG
-    Tamaño máximo: 2MB
-    Resolución: 400x400 a 4000x4000 px
 
-    Si ya existe una imagen del mismo tipo, la reemplaza.
-    """
-    # Validar que la ficha existe
     result = await session.execute(
         select(FichaTecnica).where(FichaTecnica.id_ficha == id_ficha)
     )
@@ -217,7 +188,6 @@ async def subir_imagen(
     if not ficha:
         raise HTTPException(status_code=404, detail="Ficha técnica no encontrada.")
 
-    # Solo se pueden subir imágenes en estados editables
     if ficha.estado_ficha in ("Vigente", "Obsoleto"):
         raise HTTPException(
             status_code=400,
@@ -225,30 +195,30 @@ async def subir_imagen(
                    f"Cambia la ficha a Revisión primero.",
         )
 
-    # Validar tipo
+
     validar_tipo_imagen(tipo)
 
-    # Validar archivo
+
     contenido = await validar_archivo(archivo)
 
-    # Validar dimensiones
+
     width, height = validar_dimensiones(contenido)
 
-    # Determinar extensión
+
     ext = Path(archivo.filename).suffix.lower() if archivo.filename else ".jpg"
     if ext == ".jpeg":
         ext = ".jpg"
 
-    # Eliminar imagen anterior si existe
+
     anterior = buscar_imagen_existente(id_ficha, tipo)
     if anterior:
         anterior.unlink()
 
-    # Guardar archivo
+
     ruta = get_upload_path(id_ficha, tipo, ext)
     ruta.write_bytes(contenido)
 
-    # Actualizar JSONB — crear nuevos dicts para que SQLAlchemy detecte el cambio
+
     imagenes_previas = (ficha.caracteristicas or {}).get("imagenes", {})
     imagenes_nuevas = {
         **imagenes_previas,

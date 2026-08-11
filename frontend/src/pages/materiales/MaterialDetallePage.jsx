@@ -48,9 +48,9 @@ export default function MaterialDetallePage() {
 
   async function toggleEstado(nuevoEstado) {
     try {
+      // La identidad la resuelve el backend desde el token JWT.
       await api.patch(`/material/${id}/estado`, {
         estado_material: nuevoEstado,
-        usuario: 'marco.agrusa',
       });
       // Recargar datos
       const res = await api.get(`/material/${id}`);

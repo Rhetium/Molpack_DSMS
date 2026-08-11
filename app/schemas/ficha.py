@@ -69,7 +69,7 @@ class CaracteristicasSchema(BaseModel):
     resistencia_unidad: Optional[str] = None
 
     class Config:
-        extra = "allow"  # campos adicionales por país
+        extra = "allow" 
 
     @model_validator(mode="after")
     def validar_trios_completos(self):
@@ -90,17 +90,6 @@ class CaracteristicasSchema(BaseModel):
 
 
 class CaracteristicasContenidoSchema(BaseModel):
-    """
-    Sección 'caracteristicas_contenido' — Propiedades geométricas del contenido.
-
-    Campos condicionales según tipo de contenido del material:
-    - Huevos: profundidad_pilar + diametro_alveolo (obligatorios)
-    - Frutas: profundidad_cavidad + diametro_cavidad (obligatorios)
-    - Otros:  profundidad_pilar + diametro_alveolo (obligatorios)
-
-    La validación condicional (qué grupo es obligatorio) se hace en el service.
-    Aquí solo se valida que los tríos estén completos si se envían.
-    """
     # Pilar (huevos y otros)
     profundidad_pilar_valor: Optional[float] = None
     profundidad_pilar_tolerancia: Optional[float] = None
@@ -149,11 +138,6 @@ class CaracteristicasContenidoSchema(BaseModel):
 
 
 class EmpaqueEstibaSchema(BaseModel):
-    """
-    Sección 'empaque_estiba' — Configuración de empaque y estiba.
-    Todos los campos son opcionales en borrador; la obligatoriedad se
-    valida en el service al avanzar de estado.
-    """
     tipo_empaque: Optional[str] = None
     color_empaque: Optional[str] = None
 
@@ -186,10 +170,6 @@ class EmpaqueEstibaSchema(BaseModel):
 
 
 class MicrobiologiaSchema(BaseModel):
-    """
-    Sección 'microbiologia' — Parámetros microbiológicos y metales pesados.
-    Patrón: valor/limite para microbiología, valor/unidad para metales.
-    """
     # Microbiología (valor + límite)
     recuento_aerobico_valor: Optional[float] = None
     recuento_aerobico_limite: Optional[float] = None
@@ -255,11 +235,6 @@ class MicrobiologiaSchema(BaseModel):
 
 
 class ManejoDisposicionSchema(BaseModel):
-    """
-    Sección 'manejo_disposicion' — Manejo, almacenamiento y disposición.
-    Todos los campos son opcionales en borrador; la obligatoriedad se
-    valida en el service al avanzar de estado.
-    """
     manejo: Optional[str] = None
     almacenamiento: Optional[str] = None
     transporte: Optional[str] = None
@@ -273,13 +248,7 @@ class ManejoDisposicionSchema(BaseModel):
     class Config:
         extra = "allow"
 
-
-# ============================================================
-# SCHEMAS PRINCIPALES DE FICHA TÉCNICA
-# ============================================================
-
 class AnomaliaResumen(BaseModel):
-    """Resumen de una anomalía detectada (incluido en respuestas de creación/actualización)."""
     tipo_anomalia: str
     severidad: str
     campo_afectado: str | None = None
@@ -317,7 +286,8 @@ class FichaTecnicaCreateSchema(BaseModel):
     # Opcionales en borrador — obligatorios para avanzar a Preliminar
     codigo_material_local: str | None = None
     nombre_local_material: str | None = None
-    usuario_creador: str
+    # Sobrescrito por el router con la identidad del token JWT.
+    usuario_creador: str | None = None
     pais: str | None = None
 
     caracteristicas: Optional[CaracteristicasSchema] = None
@@ -340,7 +310,8 @@ class FichaTecnicaUpdateSchema(BaseModel):
     empaque_estiba: Optional[EmpaqueEstibaSchema] = None
     microbiologia: Optional[MicrobiologiaSchema] = None
     manejo_disposicion: Optional[ManejoDisposicionSchema] = None
-    usuario_actualizacion: str
+    # Ignorado: la identidad se toma del token JWT (get_usuario_nombre).
+    usuario_actualizacion: str | None = None
 
 
 class FichaTecnicaWithMaterialSchema(BaseModel):
@@ -369,7 +340,6 @@ class FichaTecnicaWithMaterialSchema(BaseModel):
         from_attributes = True
 
 class FichaVersionSchema(BaseModel):
-    """Resumen de una versión dentro del linaje de una ficha."""
     id_ficha: UUID
     codigo_ficha_local: str | None = None
     codigo_version: str | None = None
@@ -384,4 +354,6 @@ class FichaVersionSchema(BaseModel):
 
 class CambioEstadoRequest(BaseModel):
     nuevo_estado: str
-    usuario_actualizacion: str
+    # Ignorado: la identidad se toma del token JWT (get_usuario_nombre).
+    # Se conserva como opcional por compatibilidad con clientes existentes.
+    usuario_actualizacion: str | None = None

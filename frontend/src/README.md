@@ -69,8 +69,10 @@ En `FichaDetallePage`, `agruparCampos()` filtra automáticamente los campos NC y
 - **Auth state**: Context API propio (`lib/auth.jsx` → `useAuth`).
 - **UI state**: `useState` local por componente; no hay store global.
 
-> ⚠️ **Dependencias declaradas pero no integradas.** `@tanstack/react-query`,
-> `react-hook-form` y `zod` están en `package.json`, pero el código **no las
-> usa**: de TanStack Query solo se monta el `QueryClientProvider` en `App.jsx`
-> (sin `useQuery`/`useMutation`), y RHF/Zod no se importan en ninguna página.
-> Quedaron previstas para una futura migración.
+> ⚠️ **Dependencia declarada pero no integrada.** `@tanstack/react-query` está
+> en `package.json`, pero el código **no la usa**: solo se monta el
+> `QueryClientProvider` en `App.jsx`, sin `useQuery`/`useMutation`. Quedó
+> prevista para una futura migración del fetching.
+>
+> `react-hook-form`, `@hookform/resolvers`, `zod` y `sonner` estaban declaradas
+> sin ningún import en el código; se desinstalaron.

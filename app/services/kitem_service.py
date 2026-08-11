@@ -1,11 +1,3 @@
-"""
-Servicio KItem — Gestión del grafo de conocimiento del Dataspace.
-
-ACTUALIZADO con auditoría automática: cada creación de k-item,
-cambio de estado, creación/eliminación de relación queda registrada
-en kitem_auditoria para trazabilidad completa.
-"""
-
 from uuid import UUID
 from datetime import datetime
 
@@ -36,12 +28,7 @@ class KItemService:
         self.db_session = db_session
         self.auditoria = AuditoriaService(db_session)
 
-    # =========================================
-    # Operaciones de K-Items base
-    # =========================================
-
     async def crear_kitem(self, data: KItemCreateSchema) -> KItem:
-        """Crea un registro base kitem y registra el evento de auditoría."""
         now = datetime.now()
         kitem = KItem(
             ktype=data.ktype,
@@ -57,7 +44,6 @@ class KItemService:
         self.db_session.add(kitem)
         await self.db_session.flush()
 
-        # Auditoría: registrar creación
         await self.auditoria.registrar(
             kitem_id=kitem.id,
             ktype=data.ktype,
@@ -73,7 +59,6 @@ class KItemService:
         return kitem
 
     async def obtener_kitem(self, kitem_id: UUID) -> KItem:
-        """Obtiene un k-item por su ID."""
         result = await self.db_session.execute(
             select(KItem).where(KItem.id == kitem_id)
         )
@@ -87,7 +72,6 @@ class KItemService:
         ktype: str | None = None,
         estado: str | None = None,
     ) -> list[KItem]:
-        """Lista k-items con filtros opcionales por tipo y estado."""
         query = select(KItem)
         conditions = []
         if ktype:
@@ -106,7 +90,6 @@ class KItemService:
         nuevo_estado: str,
         usuario: str,
     ) -> KItem:
-        """Actualiza el estado de un k-item y registra la transición."""
         kitem = await self.obtener_kitem(kitem_id)
         estado_anterior = kitem.estado
 
@@ -116,7 +99,6 @@ class KItemService:
         self.db_session.add(kitem)
         await self.db_session.flush()
 
-        # Auditoría: registrar cambio de estado
         await self.auditoria.registrar(
             kitem_id=kitem_id,
             ktype=kitem.ktype,
@@ -132,12 +114,8 @@ class KItemService:
 
         return kitem
 
-    # =========================================
-    # Operaciones de Relaciones (Grafo)
-    # =========================================
 
     async def crear_relacion(self, data: KItemRelacionCreateSchema) -> KItemRelacion:
-        """Crea una relación semántica y registra el evento de auditoría."""
 
         if data.tipo_relacion not in RELACIONES_VALIDAS:
             raise HTTPException(
@@ -183,7 +161,6 @@ class KItemService:
         self.db_session.add(relacion)
         await self.db_session.flush()
 
-        # Auditoría: registrar en AMBOS k-items involucrados
         detalle_relacion = {
             "relacion_id": str(relacion.id),
             "tipo_relacion": data.tipo_relacion,
@@ -224,7 +201,6 @@ class KItemService:
         tipo_relacion: str | None = None,
         direccion: str = "ambas",
     ) -> list[KItemRelacion]:
-        """Obtiene las relaciones de un k-item."""
         conditions = []
 
         if direccion == "salientes":
@@ -256,7 +232,6 @@ class KItemService:
         return result.scalars().all()
 
     async def obtener_grafo_kitem(self, kitem_id: UUID) -> dict:
-        """Devuelve el grafo completo de un k-item con sus relaciones."""
         kitem = await self.obtener_kitem(kitem_id)
         relaciones = await self.obtener_relaciones_de_kitem(kitem_id)
 
@@ -280,8 +255,11 @@ class KItemService:
             "total_relaciones": len(relaciones_detalle),
         }
 
-    async def eliminar_relacion(self, relacion_id: UUID) -> None:
-        """Elimina una relación y registra el evento de auditoría."""
+    async def eliminar_relacion(
+        self,
+        relacion_id: UUID,
+        usuario: str = "sistema",
+    ) -> None:
         result = await self.db_session.execute(
             select(KItemRelacion)
             .options(
@@ -306,7 +284,7 @@ class KItemService:
             kitem_id=relacion.source_id,
             ktype=relacion.source.ktype,
             accion=ACCION_RELACION_ELIMINADA,
-            usuario="sistema",
+            usuario=usuario,
             detalles={**detalle, "direccion": "saliente"},
         )
 
@@ -314,7 +292,7 @@ class KItemService:
             kitem_id=relacion.target_id,
             ktype=relacion.target.ktype,
             accion=ACCION_RELACION_ELIMINADA,
-            usuario="sistema",
+            usuario=usuario,
             detalles={**detalle, "direccion": "entrante"},
         )
 

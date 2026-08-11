@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_session
+from app.core.security import get_usuario_actual, get_usuario_nombre
 from app.services.semantic_search_service import BusquedaSemanticaService
 from app.schemas.semantic_search import (
     BusquedaSemanticaRequest,
@@ -18,7 +19,11 @@ from app.schemas.semantic_search import (
     KItemBusquedaSchema,
 )
 
-router = APIRouter(prefix="/dsms/semantica", tags=["búsqueda semántica"])
+router = APIRouter(
+    prefix="/dsms/semantica",
+    tags=["búsqueda semántica"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
 
 def get_busqueda_service(
@@ -185,8 +190,8 @@ async def buscar_similares(
 )
 async def reindexar_kitem(
     kitem_id: UUID,
-    usuario: str = "sistema",
     service: BusquedaSemanticaService = Depends(get_busqueda_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     kitem = await service.reindexar_kitem(
         kitem_id=kitem_id,
@@ -210,8 +215,8 @@ async def reindexar_kitem(
 )
 async def reindexar_masivo(
     request: ReindexacionMasivaRequest,
-    usuario: str = "sistema",
     service: BusquedaSemanticaService = Depends(get_busqueda_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     resultado = await service.reindexar_masivo(
         ktype=request.ktype,

@@ -6,15 +6,6 @@ import uuid
 
 
 class MaterialComercial(Base):
-    """
-    Extensión de kitem para materiales comerciales.
-
-    La metadata común (estado, fechas) vive en `kitem`. Este modelo solo
-    contiene datos de dominio del material. Las propiedades `estado_material`,
-    `fecha_creacion` y `fecha_actualizacion` son proxies hacia el kitem
-    asociado, para mantener compatibilidad con el código y los schemas que
-    las leen/escriben por su nombre histórico.
-    """
 
     __tablename__ = "material_comercial"
 
@@ -34,14 +25,14 @@ class MaterialComercial(Base):
     capacidad_nominal = Column(Text, nullable=True)
     tipo_producto = Column(Text, nullable=True)
 
-    # Metadata común vive en kitem (única fuente de verdad).
+
     kitem = relationship(
         "KItem",
         foreign_keys=[id_material_corporativo],
         lazy="joined",
     )
 
-    # --- Proxies hacia kitem (compatibilidad de lectura/escritura) ---
+
     @property
     def estado_material(self):
         return self.kitem.estado if self.kitem else None

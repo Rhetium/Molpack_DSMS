@@ -21,22 +21,14 @@ ESTADO_ABREVIATURAS = {
 
 KTYPE_MATERIAL_COMERCIAL = "MaterialComercial"
 KTYPE_FICHA_TECNICA = "FichaTecnica"
-# Futuros k-types:
-# KTYPE_NORMA = "Norma"
-# KTYPE_INCIDENCIA = "Incidencia"
-# KTYPE_PROCESO = "ProcesoManufactura"
-# KTYPE_FICHA_COMERCIAL = "FichaComercial"
 
-REL_PERTENECE_A = "pertenece_a"                        # FichaTecnica → MaterialComercial
-REL_SE_DERIVA_DE = "se_deriva_de"                      # FichaTecnica → FichaTecnica (versionamiento)
-REL_ES_VARIANTE_DE = "es_variante_de"                  # Material → Material
+REL_PERTENECE_A = "pertenece_a"
+REL_SE_DERIVA_DE = "se_deriva_de" 
+REL_ES_VARIANTE_DE = "es_variante_de"
 REL_RELACIONADO_CON = "relacionado_con"
-REL_SEMANTICAMENTE_SIMILAR = "semanticamente_similar"  # Descubierta por embeddings
+REL_SEMANTICAMENTE_SIMILAR = "semanticamente_similar" 
 
-# Futuros tipos de relación:
-# REL_CUMPLE_NORMA = "cumple_norma"          # Material/Ficha → Norma
-# REL_TIENE_INCIDENCIA = "tiene_incidencia"  # Ficha → Incidencia
-# REL_FABRICADO_POR = "fabricado_por"        # Material → ProcesoManufactura
+
 
 RELACIONES_VALIDAS = {
     REL_PERTENECE_A,
@@ -67,7 +59,6 @@ ACCIONES_VALIDAS = {
 UMBRALES_DUPLICADOS = {
     KTYPE_MATERIAL_COMERCIAL: 0.85,
     KTYPE_FICHA_TECNICA: 0.80,
-    # Valores por defecto para k-types futuros
     "_default": 0.85,
 }
 

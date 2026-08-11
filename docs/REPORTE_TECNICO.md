@@ -79,17 +79,16 @@ código son:
 | **Axios** | 1.13 | **Cliente HTTP real** (con interceptores JWT) — mecanismo de fetching en uso |
 | **Tailwind CSS** | 4.2 | Estilos utilitarios |
 | **lucide-react** | 0.575 | Iconografía |
-| **sonner** | 2.0 | Notificaciones (toasts) |
 | **ESLint** | 9.39 | Linting |
 | **TanStack React Query** | 5.90 | ⚠️ Declarada; solo se monta el `QueryClientProvider` — **sus hooks no se usan** |
-| **React Hook Form** | 7.71 | ⚠️ Declarada en `package.json` — **no se importa ni usa** |
-| **Zod** | 4.3 | ⚠️ Declarada en `package.json` — **no se importa ni usa** |
 
 > **Verificado en código (importante para el tomo):** el fetching de datos se hace
 > con **Axios + `useState`/`useEffect`** en cada página; los formularios con
-> `useState` y `<form>` nativo. `@tanstack/react-query`, `react-hook-form` y
-> `zod` figuran como dependencias pero **no están integradas** en el código
-> (ver Sección 10).
+> `useState` y `<form>` nativo. `@tanstack/react-query` figura como dependencia
+> pero **no está integrada** en el código (ver Sección 10).
+>
+> `react-hook-form`, `@hookform/resolvers`, `zod` y `sonner` también estaban
+> declaradas sin ningún uso; se desinstalaron en la limpieza de dependencias.
 
 ### Testing
 
@@ -509,9 +508,10 @@ aplicada en [app/services/fichas_services.py](../app/services/fichas_services.py
   render manual de nodos (Categoría / Material / Ficha, coloreados por estado) y
   enlaces (`pertenece_a`, `se_deriva_de`), con zoom. **No usa librería de
   grafos** (d3, vis.js, etc.).
-- **Estilos:** Tailwind CSS 4. **Notificaciones:** sonner. **Iconos:**
-  lucide-react. **Store global:** no hay; solo Context de auth + `useState`
-  local por componente.
+- **Estilos:** Tailwind CSS 4. **Iconos:** lucide-react. **Notificaciones:** no
+  hay librería de toasts; los mensajes de error/éxito se renderizan inline en
+  cada página con `useState`. **Store global:** no hay; solo Context de auth +
+  `useState` local por componente.
 
 ### 10.5 Discrepancias corregidas respecto a los README
 

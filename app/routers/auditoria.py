@@ -5,10 +5,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_session
+from app.core.security import get_usuario_actual
 from app.services.auditoria_service import AuditoriaService
 from app.schemas.kitem_auditoria import AuditoriaSchema, AuditoriaResumenSchema
 
-router = APIRouter(prefix="/dsms/auditoria", tags=["auditoria"])
+router = APIRouter(
+    prefix="/dsms/auditoria",
+    tags=["auditoria"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
 
 def get_auditoria_service(

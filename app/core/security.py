@@ -1,26 +1,3 @@
-"""
-Módulo de Seguridad — JWT + Rate Limiting.
-
-JWT:
-    - Tokens firmados con HS256, expiración configurable (default 8h)
-    - Se genera al login exitoso, se valida en cada request protegido
-    - Contiene: usuario, nombre, rol, iniciales, email, exp
-
-Rate Limiting:
-    - Máximo 5 intentos de login fallidos por IP en 1 minuto
-    - Después de 5 fallos, bloqueo por 5 minutos
-    - Se resetea al hacer login exitoso
-
-Integración:
-    1. Copiar a app/core/security.py
-    2. En auth_service.py: importar crear_token y agregar al LoginResponse
-    3. En cada router protegido: agregar Depends(get_usuario_actual)
-    4. En main.py: agregar middleware de rate limiting
-
-Dependencias:
-    pip install PyJWT
-"""
-
 import os
 import time
 import jwt
@@ -32,35 +9,17 @@ from fastapi import HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
-# ============================================================
-# CONFIGURACIÓN JWT
-# ============================================================
-
-# Clave secreta para firmar tokens — CAMBIAR EN PRODUCCIÓN
-# Generar con: python -c "import secrets; print(secrets.token_hex(32))"
 JWT_SECRET = os.getenv("JWT_SECRET", "molpack-dsms-dev-secret-key-cambiar-en-produccion-2025")
 
-# Algoritmo de firma
+
 JWT_ALGORITHM = "HS256"
 
-# Tiempo de expiración del token (en horas)
+
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "8"))
 
 
-# ============================================================
-# FUNCIONES JWT
-# ============================================================
 
 def crear_token(datos: dict) -> str:
-    """
-    Genera un token JWT firmado.
-    
-    Args:
-        datos: Dict con los campos del usuario (usuario, nombre, rol, etc.)
-    
-    Returns:
-        Token JWT como string
-    """
     payload = {
         **datos,
         "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
@@ -70,18 +29,7 @@ def crear_token(datos: dict) -> str:
 
 
 def verificar_token(token: str) -> dict:
-    """
-    Verifica y decodifica un token JWT.
-    
-    Args:
-        token: Token JWT string
-    
-    Returns:
-        Dict con los datos del payload
-    
-    Raises:
-        HTTPException 401 si el token es inválido o expirado
-    """
+  
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload
@@ -96,10 +44,6 @@ def verificar_token(token: str) -> dict:
             detail="Token de autenticación inválido.",
         )
 
-
-# ============================================================
-# DEPENDENCIA DE AUTENTICACIÓN PARA FASTAPI
-# ============================================================
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -138,9 +82,31 @@ async def get_usuario_opcional(
         return None
 
 
-# ============================================================
-# RATE LIMITING
-# ============================================================
+async def get_usuario_nombre(
+    payload: dict = Depends(get_usuario_actual),
+) -> str:
+    """
+    Devuelve el identificador del usuario autenticado, tomado del token JWT.
+
+    Esta es la ÚNICA fuente de identidad válida para auditoría. Los routers
+    deben usar esta dependencia en lugar de leer el usuario del cuerpo de la
+    petición: un campo `usuario` enviado por el cliente es autodeclarado y
+    puede falsificarse, lo que permitiría registrar acciones a nombre de un
+    tercero y corromper la trazabilidad.
+
+    Uso en routers:
+        @router.post("/algo")
+        async def endpoint(usuario: str = Depends(get_usuario_nombre)):
+            await service.hacer_algo(usuario=usuario)
+    """
+    nombre = payload.get("usuario") or payload.get("nombre")
+    if not nombre:
+        raise HTTPException(
+            status_code=401,
+            detail="El token no contiene la identidad del usuario.",
+        )
+    return nombre
+
 
 class RateLimiter:
     """
@@ -161,9 +127,7 @@ class RateLimiter:
         self.max_intentos = max_intentos
         self.ventana_segundos = ventana_segundos
         self.bloqueo_segundos = bloqueo_segundos
-        # {ip: [(timestamp, exitoso), ...]}
         self.intentos: dict[str, list[tuple[float, bool]]] = defaultdict(list)
-        # {ip: timestamp_desbloqueo}
         self.bloqueados: dict[str, float] = {}
 
     def verificar(self, ip: str) -> None:
@@ -173,7 +137,6 @@ class RateLimiter:
         """
         ahora = time.time()
 
-        # ¿Está bloqueada?
         if ip in self.bloqueados:
             desbloqueo = self.bloqueados[ip]
             if ahora < desbloqueo:
@@ -183,7 +146,6 @@ class RateLimiter:
                     detail=f"Demasiados intentos fallidos. Intenta de nuevo en {restante} segundos.",
                 )
             else:
-                # Desbloquear
                 del self.bloqueados[ip]
                 self.intentos[ip] = []
 
@@ -192,22 +154,20 @@ class RateLimiter:
         ahora = time.time()
 
         if exitoso:
-            # Login exitoso: limpiar intentos
             self.intentos[ip] = []
             if ip in self.bloqueados:
                 del self.bloqueados[ip]
             return
 
-        # Login fallido: agregar al historial
+  
         self.intentos[ip].append((ahora, False))
 
-        # Limpiar intentos fuera de la ventana
+
         self.intentos[ip] = [
             (t, e) for t, e in self.intentos[ip]
             if ahora - t < self.ventana_segundos
         ]
 
-        # ¿Excedió el máximo?
         if len(self.intentos[ip]) >= self.max_intentos:
             self.bloqueados[ip] = ahora + self.bloqueo_segundos
             self.intentos[ip] = []

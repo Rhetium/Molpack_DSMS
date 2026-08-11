@@ -85,7 +85,7 @@ class AnomaliaRegistro(Base):
         comment="Metadata adicional: stats, similitud, categorías, etc.",
     )
 
-    # Estado de resolución
+    # Estado de resolucion
     estado = Column(
         Text,
         nullable=False,

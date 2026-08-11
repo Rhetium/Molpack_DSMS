@@ -70,36 +70,23 @@ class ExportService:
 
         return ficha, material
 
-    # =============================================
-    # EXPORTACIÓN PDF
-    # =============================================
-
     async def exportar_ficha_pdf(
         self,
         id_ficha: UUID,
         plantilla_path: str | None = None,
     ) -> bytes:
-        """
-        Genera PDF de la ficha técnica.
-        Si plantilla_path se proporciona, escribe los datos sobre esa plantilla.
-        Si no, genera un PDF limpio con formato propio.
-        """
         ficha, material = await self._obtener_ficha_con_material(id_ficha)
 
-        # Generar overlay con los datos
         overlay_buffer = io.BytesIO()
         self._generar_overlay(overlay_buffer, ficha, material)
         overlay_buffer.seek(0)
 
         if plantilla_path:
-            # Escribir sobre la plantilla
             return self._merge_con_plantilla(plantilla_path, overlay_buffer)
         else:
-            # Sin plantilla, retornar el overlay directamente
             return overlay_buffer.getvalue()
 
     def _generar_overlay(self, buffer, ficha, material):
-        """Genera el canvas con todos los datos de la ficha."""
         c = canvas.Canvas(buffer, pagesize=letter)
         width, height = letter
 
@@ -208,16 +195,13 @@ class ExportService:
         overlay_reader = PdfReader(overlay_buffer)
         writer = PdfWriter()
 
-        # Para cada página del overlay, merge con la plantilla
         for i, overlay_page in enumerate(overlay_reader.pages):
             if i < len(plantilla_reader.pages):
-                # Usar página de plantilla como base
+
                 base_page = plantilla_reader.pages[i]
                 base_page.merge_page(overlay_page)
                 writer.add_page(base_page)
             else:
-                # Si el overlay tiene más páginas que la plantilla,
-                # usar la última página de plantilla o una en blanco
                 if len(plantilla_reader.pages) > 0:
                     from copy import copy
                     base_page = copy(plantilla_reader.pages[-1])
@@ -230,7 +214,6 @@ class ExportService:
         writer.write(output)
         return output.getvalue()
 
-    # ---- Helpers de dibujo ----
 
     def _seccion_titulo(self, c, titulo, x, y, width):
         c.setFont("Helvetica-Bold", 10)
@@ -393,7 +376,6 @@ class ExportService:
         c.setFont("Helvetica", 8)
         c.setFillColor(NEGRO)
 
-        # Word wrap manual
         max_width = width - 100
         words = texto.split()
         line = ""
@@ -411,10 +393,6 @@ class ExportService:
 
         y -= 8
         return y
-
-    # =============================================
-    # EXPORTACIÓN EXCEL
-    # =============================================
 
     _EXCEL_HEADERS = [
         "Código Ficha", "Código Local", "País", "Estado",
@@ -447,7 +425,6 @@ class ExportService:
     ]
 
     async def exportar_fichas_excel(self) -> bytes:
-        """Exporta listado de fichas a Excel."""
         result = await self.db_session.execute(
             select(FichaTecnica)
             .join(KItem, FichaTecnica.id_ficha == KItem.id)

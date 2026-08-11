@@ -1,11 +1,3 @@
-"""
-Router de Autenticación — Login con JWT + Rate Limiting.
-
-Endpoints:
-    POST /auth/login     — Login (devuelve JWT token)
-    GET  /auth/me        — Info del usuario actual (requiere token)
-    POST /auth/refresh   — Renovar token antes de que expire
-"""
 
 from fastapi import APIRouter, Depends, Request
 from app.services.auth_service import AuthService, LoginRequest, LoginResponse
@@ -20,26 +12,16 @@ router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
 @router.post("/login")
 async def login(request: LoginRequest, req: Request):
-    """
-    Autenticación de usuario con JWT y rate limiting.
-    
-    Retorna un token JWT que debe enviarse en el header:
-        Authorization: Bearer <token>
-    
-    Rate limiting: máximo 5 intentos fallidos por minuto.
-    Después de 5 fallos, bloqueo por 5 minutos.
-    """
-    # Obtener IP del cliente
+
+
     ip = req.client.host if req.client else "unknown"
 
-    # Verificar rate limit
+
     login_rate_limiter.verificar(ip)
 
-    # Intentar login
     service = AuthService()
     resultado = await service.login(request)
 
-    # Registrar intento
     login_rate_limiter.registrar_intento(ip, resultado.exito)
 
     if not resultado.exito:
@@ -50,7 +32,6 @@ async def login(request: LoginRequest, req: Request):
             "intentos_restantes": intentos_restantes,
         }
 
-    # Generar JWT token
     token = crear_token({
         "usuario": resultado.usuario,
         "nombre": resultado.nombre,
@@ -75,11 +56,7 @@ async def login(request: LoginRequest, req: Request):
 
 @router.get("/me")
 async def me(usuario: dict = Depends(get_usuario_actual)):
-    """
-    Retorna la información del usuario autenticado.
-    Requiere token JWT en el header Authorization.
-    Útil para verificar si el token sigue vigente.
-    """
+
     return {
         "usuario": usuario.get("usuario"),
         "nombre": usuario.get("nombre"),
@@ -91,11 +68,7 @@ async def me(usuario: dict = Depends(get_usuario_actual)):
 
 @router.post("/refresh")
 async def refresh(usuario: dict = Depends(get_usuario_actual)):
-    """
-    Renueva el token JWT antes de que expire.
-    Requiere un token válido (no expirado).
-    Retorna un nuevo token con tiempo de expiración extendido.
-    """
+
     token = crear_token({
         "usuario": usuario.get("usuario"),
         "nombre": usuario.get("nombre"),

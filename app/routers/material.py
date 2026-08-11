@@ -5,10 +5,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_session
+from app.core.security import get_usuario_actual, get_usuario_nombre
 from app.schemas.material import AnomaliaResumen, MaterialSchema, MaterialCreateSchema, MaterialUpdateSchema, CambioEstadoMaterialRequest
 from app.services.material_service import MaterialService
 
-router = APIRouter(prefix="/material", tags=["material"])
+router = APIRouter(
+    prefix="/material",
+    tags=["material"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
 
 def get_material_service(
@@ -36,7 +41,10 @@ async def obtener_material(
 async def crear_material(
     material_data: MaterialCreateSchema,
     service: MaterialService = Depends(get_material_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
+    # La identidad la impone el token, no el cuerpo de la petición.
+    material_data.usuario_creador = usuario
     mateiral = await service.crear(material_data)
     resultado = MaterialSchema.model_validate(mateiral)
     if hasattr(mateiral,'_anomalias') and mateiral._anomalias:
@@ -56,12 +64,13 @@ async def actualizar_material(
     id_material: UUID,
     datos: MaterialUpdateSchema,
     service: MaterialService = Depends(get_material_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     datos_dict = datos.model_dump(exclude={"usuario"}, exclude_none=True)
     material = await service.actualizar(
         id_material=id_material,
         datos_actualizacion=datos_dict,
-        usuario=datos.usuario
+        usuario=usuario
     )
     resultado = MaterialSchema.model_validate(material)
     if hasattr(material,'_anomalias') and material._anomalias:
@@ -82,10 +91,11 @@ async def cambiar_estado_material(
     id_material: UUID,
     request: CambioEstadoMaterialRequest,
     service: MaterialService = Depends(get_material_service),
+    usuario: str = Depends(get_usuario_nombre),
 ):
     material = await service.actualizar(
         id_material=id_material,
         datos_actualizacion={"estado_material": request.estado_material},
-        usuario=request.usuario,
+        usuario=usuario,
     )
     return MaterialSchema.model_validate(material)

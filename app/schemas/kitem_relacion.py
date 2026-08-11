@@ -5,18 +5,17 @@ from app.schemas.kitem import KItemLiteSchema
 
 
 class KItemRelacionCreateSchema(BaseModel):
-    """Schema para crear una relación entre dos k-items."""
 
     source_id: UUID
     target_id: UUID
     tipo_relacion: str
     etiqueta: str | None = None
     metadata_relacion: dict | None = None
-    usuario_creador: str
+    # Sobrescrito por el router con la identidad del token JWT.
+    usuario_creador: str | None = None
 
 
 class KItemRelacionSchema(BaseModel):
-    """Schema de lectura de una relación."""
 
     id: UUID
     source_id: UUID
@@ -32,7 +31,6 @@ class KItemRelacionSchema(BaseModel):
 
 
 class KItemRelacionDetalleSchema(BaseModel):
-    """Schema de lectura enriquecido con datos de los k-items vinculados."""
 
     id: UUID
     tipo_relacion: str

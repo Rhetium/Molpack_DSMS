@@ -1,22 +1,3 @@
-"""
-Módulo de Autenticación — LDAP/Active Directory + usuarios locales.
-
-Configuración:
-    Editar las variables LDAP_* abajo con los datos del Active Directory
-    de Molpack Corporation. Mientras no estén configuradas, el sistema
-    usa autenticación local (usuarios hardcodeados para desarrollo).
-
-Integración:
-    1. Copiar este archivo a app/services/auth_service.py
-    2. Copiar auth_router.py a app/routers/auth.py
-    3. Registrar en main.py: app.include_router(auth_router)
-    4. Configurar las variables LDAP_* con los datos del AD de Molpack
-
-Dependencias:
-    pip install python-ldap  (para Linux)
-    pip install ldap3        (multiplataforma, recomendado)
-"""
-
 import os
 import logging
 from datetime import datetime, timedelta
@@ -25,42 +6,23 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================
-# CONFIGURACIÓN LDAP — Editar con datos de Molpack
-# ============================================================
-
-# Dirección del servidor Active Directory
-# Ejemplo: "ldap://dc01.molpack.local" o "ldaps://dc01.molpack.net:636"
 LDAP_SERVER = os.getenv("LDAP_SERVER", "")
 
-# DN base del dominio
-# Ejemplo: "DC=molpack,DC=net"
+
 LDAP_BASE_DN = os.getenv("LDAP_BASE_DN", "")
 
-# DN del usuario de servicio para buscar usuarios (bind account)
-# Ejemplo: "CN=svc_dsms,OU=Service Accounts,DC=molpack,DC=net"
 LDAP_BIND_DN = os.getenv("LDAP_BIND_DN", "")
 LDAP_BIND_PASSWORD = os.getenv("LDAP_BIND_PASSWORD", "")
 
-# Grupo de AD que tiene acceso al sistema
-# Ejemplo: "CN=DSMS_Users,OU=Groups,DC=molpack,DC=net"
+
 LDAP_GRUPO_AUTORIZADO = os.getenv("LDAP_GRUPO_AUTORIZADO", "")
 
-# Filtro para buscar usuarios
-# {username} será reemplazado con el usuario ingresado
 LDAP_USER_FILTER = os.getenv("LDAP_USER_FILTER", "(sAMAccountName={username})")
 
-# ¿Usar SSL? (ldaps://)
 LDAP_USE_SSL = os.getenv("LDAP_USE_SSL", "false").lower() == "true"
 
-# ¿Está configurado LDAP?
+
 LDAP_HABILITADO = bool(LDAP_SERVER and LDAP_BASE_DN)
-
-
-# ============================================================
-# USUARIOS LOCALES (desarrollo / fallback)
-# ============================================================
 
 USUARIOS_LOCALES = {
     "marco.agrusa": {
@@ -109,17 +71,8 @@ class LoginResponse(BaseModel):
 # ============================================================
 
 class AuthService:
-    """
-    Servicio de autenticación híbrido: LDAP + local.
-    
-    Flujo:
-    1. Si LDAP está configurado, intenta autenticar contra AD
-    2. Si LDAP falla o no está configurado, intenta autenticación local
-    3. El usuario admin siempre puede autenticarse localmente
-    """
 
     async def login(self, request: LoginRequest) -> LoginResponse:
-        """Intenta autenticar al usuario."""
         usuario = request.usuario.strip().lower()
         password = request.password
 
@@ -142,7 +95,6 @@ class AuthService:
         return self._autenticar_local(usuario, password)
 
     def _autenticar_local(self, usuario: str, password: str) -> LoginResponse:
-        """Autenticación contra usuarios locales hardcodeados."""
         user_data = USUARIOS_LOCALES.get(usuario)
         if not user_data or user_data["password"] != password:
             return LoginResponse(
@@ -166,16 +118,6 @@ class AuthService:
         )
 
     async def _autenticar_ldap(self, usuario: str, password: str) -> LoginResponse:
-        """
-        Autenticación contra Active Directory via LDAP.
-        
-        Flujo:
-        1. Conectar al AD con la cuenta de servicio (bind)
-        2. Buscar el usuario por sAMAccountName
-        3. Intentar bind con las credenciales del usuario
-        4. Verificar membresía en grupo autorizado
-        5. Extraer nombre, email, rol del AD
-        """
         try:
             import ldap3
             from ldap3 import Server, Connection, ALL, SUBTREE
@@ -236,7 +178,7 @@ class AuthService:
             departamento = str(entry.department) if hasattr(entry, 'department') and entry.department else None
 
             # Determinar rol basado en grupo o departamento
-            rol = "Consultor"  # Default
+            rol = "Consultor" 
             if LDAP_GRUPO_AUTORIZADO:
                 member_of = [str(g).lower() for g in entry.memberOf.values] if hasattr(entry, 'memberOf') else []
                 if any("admin" in g for g in member_of):

@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Save, Check, Info, AlertTriangle, Pencil } from 'lucide-react';
 import api from '../../../lib/api';
-import { useAuth } from '../../../lib/auth';
 import { PAISES } from './paises';
 import { tieneValores } from './fichaCampos';
 import { PasoMedidas, PasoContenidoDinamico, PasoEmpaque, PasoMicrobiologia, PasoManejo } from './PasosFicha';
@@ -100,7 +99,6 @@ function hidratarSeccion(datos, defaults) {
 
 export default function FichaEditarPage() {
   const { id } = useParams();
-  const { user } = useAuth();
 
   const [paso, setPaso] = useState(0);
   const [ficha, setFicha] = useState(null);
@@ -222,7 +220,7 @@ export default function FichaEditarPage() {
         empaque_estiba: tieneValores(empaque) ? limpiarSeccion(empaque) : null,
         microbiologia: tieneValores(microbiologia) ? limpiarSeccion(microbiologia) : null,
         manejo_disposicion: tieneValores(manejo) ? limpiarSeccion(manejo) : null,
-        usuario_actualizacion: user?.usuario || 'sistema',
+        // usuario_actualizacion lo resuelve el backend desde el token JWT.
       };
       const res = await api.patch(`/ficha/${id}`, payload);
       setFicha(res.data);

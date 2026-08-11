@@ -27,6 +27,7 @@ from app.core.utils import nombre_pais_a_iso
 
 from app.services.semantic_search_service import BusquedaSemanticaService
 from app.services.anomalia_service import AnomaliaService
+from app.routers.imagenes import clonar_imagenes_ficha
 
 from app.core.dsms_constants import (
     ESTADO_REVISION,
@@ -47,18 +48,14 @@ from app.core.anomalia_constant import MIN_MUESTRAS_ML
 
 logger = logging.getLogger(__name__)
 
-# ── Auto-entrenamiento ML ──────────────────────────────────────────────────
-# Archivo que almacena el timestamp Unix del último entrenamiento exitoso.
-# Mantiene referencias a tareas de fondo para evitar que el GC las elimine
 _bg_tasks: set = set()
 
 _COOLDOWN_FILE = Path(__file__).parent.parent / "ml_models" / ".last_training"
-# Tiempo mínimo entre entrenamientos automáticos (segundos).
+
 _COOLDOWN_SEGUNDOS = 3600  # 1 hora
 
 
 def _entrenamiento_en_cooldown() -> bool:
-    """Devuelve True si el último entrenamiento fue hace menos de 1 hora."""
     if not _COOLDOWN_FILE.exists():
         return False
     try:
@@ -74,16 +71,11 @@ def _registrar_entrenamiento() -> None:
 
 
 async def _ejecutar_entrenamiento_bg() -> None:
-    """
-    Tarea de fondo: entrena el modelo ML si hay suficientes fichas.
-    Crea su propia sesión de BD para no depender de la sesión de la request.
-    """
     from app.core.database import AsyncSessionLocal
     from app.services.ml_anomalia_service import MLAnomaliaService
 
     try:
         async with AsyncSessionLocal() as session:
-            # Verificar mínimo de fichas Vigentes
             total = await session.scalar(
                 select(func.count())
                 .select_from(FichaTecnica)
@@ -116,7 +108,6 @@ class FichaService:
         self.busqueda = BusquedaSemanticaService(db_session)
         self.anomalias = AnomaliaService(db_session)
 
-    # -------------------------
     def _validar_transicion_estado(self, estado_actual: str, nuevo_estado: str) -> None:
         permitidos = TRANSACCIONES_PERMITIDAS.get(estado_actual, set())
         if nuevo_estado not in permitidos:
@@ -187,10 +178,6 @@ class FichaService:
                 ),
             )
 
-    # -------------------------
-    # Validaciones de dominio
-    # -------------------------
-
     async def _validar_material(self, id_material: UUID) -> MaterialComercial:
         result = await self.db_session.execute(
             select(MaterialComercial).where(
@@ -208,31 +195,15 @@ class FichaService:
         self,
         caracteristicas_contenido: dict | None,
     ) -> None:
-        """
-        Valida las caracteristicas_contenido.
-
-        Regla actualizada: TODOS los campos de contenido son opcionales.
-        La sección puede estar vacía o tener cualquier combinación de campos.
-
-        - Un separador de huevos puede no tener profundidad de pilar
-        - Una bandeja de potes no necesita diámetro de cavidad
-        - Un porta vasos puede no tener ningún campo de contenido
-
-        Solo se valida que si la sección existe, tenga al menos un campo
-        con valor (para evitar guardar secciones vacías inútilmente).
-        """
         if not caracteristicas_contenido:
-            # Sección vacía es válido — no todos los productos tienen contenido
             return
 
-        # Obtener datos como dict
         datos = (
             caracteristicas_contenido.model_dump()
             if hasattr(caracteristicas_contenido, "model_dump")
             else caracteristicas_contenido
         )
 
-        # Verificar que al menos un campo tiene valor (evitar dict vacío o todo nulls)
         tiene_algun_valor = any(
             v is not None
             for k, v in datos.items()
@@ -240,8 +211,6 @@ class FichaService:
         )
 
         if not tiene_algun_valor:
-            # Si mandaron la sección pero todo vacío, simplemente ignorar
-            # No lanzar error — el frontend puede mandar la sección vacía
             return
         
     async def _validar_codigo_material_local_unico(
@@ -264,9 +233,6 @@ class FichaService:
                 ),
             )
 
-    # -------------------------
-    # Utilidades
-    # -------------------------
 
     def _generar_codigo_ficha(
         self, codigo_material_local: str, pais: str,
@@ -283,9 +249,6 @@ class FichaService:
         except (ValueError, TypeError):
             return "2.0"
 
-    # -------------------------
-    # Operaciones públicas
-    # -------------------------
 
     async def listar(self) -> list[FichaTecnica]:
         result = await self.db_session.execute(select(FichaTecnica))
@@ -301,16 +264,6 @@ class FichaService:
         return ficha
 
     async def listar_versiones(self, id_ficha: UUID) -> list[FichaTecnica]:
-        """
-        Devuelve todas las versiones del linaje de la ficha: aquellas que
-        comparten material, país y código de material local (solo difiere
-        codigo_version). Ordenadas por versión ascendente.
-
-        Las versiones se crean reutilizando el mismo codigo_material_local,
-        y la validación de unicidad garantiza que esa coincidencia solo
-        ocurre por versionamiento. Si el código local aún está vacío
-        (borrador sin completar), no hay linaje: se devuelve solo la ficha.
-        """
         ficha = await self.obtener(id_ficha)
 
         if not ficha.codigo_material_local:
@@ -336,10 +289,6 @@ class FichaService:
         return sorted(versiones, key=_clave_version)
 
     async def crear(self, ficha_data: FichaTecnicaCreateSchema):
-        """
-        Crea una ficha técnica con integración completa al DSMS.
-        La auditoría de creación y relación se maneja desde KItemService.
-        """
         material = await self._validar_material(ficha_data.id_material_corporativo)
 
         if material.estado_material == "Inactivo":
@@ -354,15 +303,9 @@ class FichaService:
         version_inicial = "1.0"
         estado_inicial = ESTADO_BORRADOR
 
-        # Campos opcionales en borrador: si no vienen, usamos placeholders que
-        # serán completados antes de avanzar a Preliminar.
         codigo_local = ficha_data.codigo_material_local or ""
         pais_iso = nombre_pais_a_iso(ficha_data.pais) if ficha_data.pais else ""
 
-        # Solo validamos unicidad de código cuando ya existe uno real.
-        # Consultar con el valor tal como se almacena ('' si no hay país) —
-        # con "XX" el check nunca encajaba para borradores sin país y
-        # permitía códigos duplicados.
         if codigo_local:
             await self._validar_codigo_material_local_unico(
                 id_material=ficha_data.id_material_corporativo,
@@ -379,7 +322,6 @@ class FichaService:
             codigo_version=version_inicial,
         )
 
-        # PASO 1: Crear kitem base (auditoría de CREACION automática)
         kitem = await self.kitem_service.crear_kitem(
             KItemCreateSchema(
                 ktype=KTYPE_FICHA_TECNICA,
@@ -395,7 +337,6 @@ class FichaService:
             )
         )
 
-        # PASO 2: Crear la ficha técnica
         ficha = FichaTecnica(
             id_ficha=kitem.id,
             id_material_corporativo=ficha_data.id_material_corporativo,
@@ -410,11 +351,10 @@ class FichaService:
             microbiologia=ficha_data.microbiologia.model_dump() if ficha_data.microbiologia else None,
             manejo_disposicion=ficha_data.manejo_disposicion.model_dump() if ficha_data.manejo_disposicion else None,
         )
-        # estado, usuarios y fechas viven en kitem (única fuente de verdad)
+
         ficha.kitem = kitem
         self.db_session.add(ficha)
 
-        # PASO 3: Relación "pertenece_a" (auditoría de RELACION_CREADA automática)
         await self.kitem_service.crear_relacion(
             KItemRelacionCreateSchema(
                 source_id=kitem.id,
@@ -425,11 +365,10 @@ class FichaService:
             )
         )
 
-        # --- Generar embedding para búsqueda semántica ---
         await self.busqueda.asignar_embedding(
             kitem_id=ficha.id_ficha,
             campos_adicionales={
-                "tipo_producto": material.tipo_producto,   # ← del material, no de la ficha
+                "tipo_producto": material.tipo_producto, 
                 "estado_ficha": ficha.estado_ficha,
             },
             usuario=ficha_data.usuario_creador,
@@ -438,8 +377,6 @@ class FichaService:
         await self.db_session.commit()
         await self.db_session.refresh(ficha)
 
-        # Los detectores de anomalías se ejecutan al pasar a Preliminar,
-        # no en la creación, ya que en Borrador la ficha puede estar incompleta.
         ficha._anomalias = []
         return ficha
 
@@ -523,9 +460,6 @@ class FichaService:
                 ),
             )
 
-        # El estado, usuario y fecha viven en kitem; los escribe
-        # actualizar_estado_kitem (que además lee el estado anterior para
-        # la auditoría, por lo que NO debe modificarse aquí antes).
         ficha.codigo_ficha_local = self._generar_codigo_ficha(
             codigo_material_local=ficha.codigo_material_local or "BORRADOR",
             pais=ficha.pais or "XX",
@@ -534,14 +468,12 @@ class FichaService:
         )
         self.db_session.add(ficha)
 
-        # Sincronizar estado en kitem base (auditoría de CAMBIO_ESTADO automática)
         await self.kitem_service.actualizar_estado_kitem(
             kitem_id=ficha.id_ficha,
             nuevo_estado=nuevo_estado,
             usuario=usuario_actualizacion,
         )
 
-        # Auditoría adicional a nivel de ficha con detalles específicos
         await self.auditoria.registrar(
             kitem_id=ficha.id_ficha,
             ktype=KTYPE_FICHA_TECNICA,
@@ -558,20 +490,10 @@ class FichaService:
             },
         )
 
-        # Al pasar a Preliminar: actualizar KItem con info rica, re-generar
-        # embedding con datos reales de la ficha y ejecutar detectores.
-        # Se hace ANTES del commit para que un fallo revierta la transición
-        # completa, en vez de dejar una ficha Preliminar sin embedding ni
-        # análisis de anomalías (que luego podría publicarse a Vigente sin
-        # ninguna revisión).
         if nuevo_estado == ESTADO_PRELIMINAR:
             try:
                 material = await self._validar_material(ficha.id_material_corporativo)
 
-                # Construir campos adicionales ricos para un embedding significativo.
-                # El embedding de Borrador era genérico; ahora incluye características
-                # reales para que la búsqueda semántica y la detección de duplicados
-                # sean precisas.
                 caract = ficha.caracteristicas or {}
                 campos_embedding = {
                     "material": material.nombre_corporativo,
@@ -586,10 +508,9 @@ class FichaService:
                     "alto_mm": caract.get("dimensiones_alto_valor", ""),
                     "peso_g": caract.get("peso_valor", ""),
                 }
-                # Eliminar claves vacías para no contaminar el texto
+
                 campos_embedding = {k: v for k, v in campos_embedding.items() if v not in (None, "", 0)}
 
-                # Actualizar nombre y descripción del KItem para que sean legibles
                 from sqlalchemy import update as sa_update
                 from app.models.kitem import KItem as KItemModel
                 nombre_rico = (
@@ -639,7 +560,6 @@ class FichaService:
         await self.db_session.commit()
         await self.db_session.refresh(ficha)
 
-        # Disparar reentrenamiento ML en background cuando una ficha se publica
         if nuevo_estado == ESTADO_VIGENTE and not _entrenamiento_en_cooldown():
             task = asyncio.create_task(_ejecutar_entrenamiento_bg())
             _bg_tasks.add(task)
@@ -648,12 +568,7 @@ class FichaService:
         return ficha
 
     async def crear_nueva_version(self, id_ficha: UUID, usuario: str):
-        """
-        Crea nueva versión con trazabilidad completa:
-        - Auditoría de NUEVA_VERSION en la ficha origen
-        - Auditoría de CREACION en la nueva ficha (automática desde KItemService)
-        - Relación "se_deriva_de" en el grafo (automática desde KItemService)
-        """
+
         ficha_origen = await self.obtener(id_ficha)
 
         nueva_version = self._incrementar_version_simple(ficha_origen.codigo_version)
@@ -666,7 +581,6 @@ class FichaService:
             codigo_version=nueva_version,
         )
 
-        # PASO 1: Crear kitem base (auditoría de CREACION automática)
         kitem = await self.kitem_service.crear_kitem(
             KItemCreateSchema(
                 ktype=KTYPE_FICHA_TECNICA,
@@ -684,7 +598,6 @@ class FichaService:
             )
         )
 
-        # PASO 2: Crear la nueva ficha
         nueva_ficha = FichaTecnica(
             id_ficha=kitem.id,
             id_material_corporativo=ficha_origen.id_material_corporativo,
@@ -693,17 +606,19 @@ class FichaService:
             nombre_local_material=ficha_origen.nombre_local_material,
             codigo_version=nueva_version,
             pais=ficha_origen.pais,
-            caracteristicas=ficha_origen.caracteristicas,
+
+            caracteristicas=clonar_imagenes_ficha(
+                ficha_origen.id_ficha, kitem.id, ficha_origen.caracteristicas
+            ),
             caracteristicas_contenido=ficha_origen.caracteristicas_contenido,
             empaque_estiba=ficha_origen.empaque_estiba,
             microbiologia=ficha_origen.microbiologia,
             manejo_disposicion=ficha_origen.manejo_disposicion,
         )
-        # estado, usuarios y fechas viven en kitem (única fuente de verdad)
+
         nueva_ficha.kitem = kitem
         self.db_session.add(nueva_ficha)
 
-        # PASO 3: Relación "se_deriva_de" (auditoría de RELACION_CREADA automática)
         await self.kitem_service.crear_relacion(
             KItemRelacionCreateSchema(
                 source_id=kitem.id,
@@ -714,7 +629,6 @@ class FichaService:
             )
         )
 
-        # PASO 4: Relación "pertenece_a" con el material
         await self.kitem_service.crear_relacion(
             KItemRelacionCreateSchema(
                 source_id=kitem.id,
@@ -725,7 +639,6 @@ class FichaService:
             )
         )
 
-        # Auditoría: registrar NUEVA_VERSION en la ficha ORIGEN
         await self.auditoria.registrar(
             kitem_id=ficha_origen.id_ficha,
             ktype=KTYPE_FICHA_TECNICA,
@@ -742,10 +655,7 @@ class FichaService:
         await self.db_session.commit()
         await self.db_session.refresh(nueva_ficha)
         return nueva_ficha
-    
-    # =========================================
-    # Campos editables por estado
-    # =========================================
+
 
     SECCIONES_EDITABLES = {
         "caracteristicas",
@@ -755,18 +665,12 @@ class FichaService:
         "manejo_disposicion",
     }
 
-    # Columnas escalares de la ficha editables vía PATCH (además de las
-    # secciones JSONB). Se aplican con el mismo mecanismo setattr/auditoría.
-    # codigo_material_local y pais solo se aceptan en estado Borrador.
     CAMPOS_ESCALARES_EDITABLES = {
         "nombre_local_material",
         "codigo_material_local",
         "pais",
     }
 
-    # -------------------------
-    # Modificación de fichas
-    # -------------------------
 
     async def actualizar(
         self,
@@ -774,36 +678,14 @@ class FichaService:
         datos_actualizacion: dict,
         usuario: str,
     ) -> FichaTecnica:
-        """
-        Actualiza una ficha técnica según las reglas de negocio:
-
-        - Borrador/Preliminar: Edición libre de secciones JSONB
-          (caracteristicas, caracteristicas_contenido, empaque_estiba,
-          microbiologia, manejo_disposicion). Misma versión.
-        - Vigente: NO se edita directamente. Se crea nueva versión
-          en Borrador y la ficha vigente pasa a Obsoleto automáticamente.
-        - Obsoleto: No se puede modificar.
-
-        Args:
-            id_ficha: UUID de la ficha a modificar.
-            datos_actualizacion: Dict con las secciones JSONB a modificar.
-                Claves válidas: caracteristicas, caracteristicas_contenido,
-                empaque_estiba, microbiologia, manejo_disposicion.
-            usuario: Usuario que realiza la modificación.
-
-        Returns:
-            La ficha actualizada (o la nueva versión si era Vigente).
-        """
         ficha = await self.obtener(id_ficha)
 
-        # --- Obsoleto: no se puede modificar ---
         if ficha.estado_ficha == ESTADO_OBSOLETO:
             raise HTTPException(
                 status_code=400,
                 detail="No se puede modificar una ficha en estado Obsoleto.",
             )
 
-        # --- Vigente: crear nueva versión automáticamente ---
         if ficha.estado_ficha in (ESTADO_VIGENTE, ESTADO_REVISION):
             return await self._modificar_ficha_vigente(
                 ficha_vigente=ficha,
@@ -811,7 +693,6 @@ class FichaService:
                 usuario=usuario,
             )
 
-        # --- Borrador / Preliminar: edición directa ---
         return await self._modificar_ficha_editable(
             ficha=ficha,
             datos_actualizacion=datos_actualizacion,
@@ -824,18 +705,11 @@ class FichaService:
         datos_actualizacion: dict,
         usuario: str,
     ) -> FichaTecnica:
-        """
-        Modifica directamente las secciones JSONB de una ficha
-        en estado Borrador o Preliminar. Misma versión.
-        """
-        # Normalizar país a ISO-2 (acepta código o nombre legible).
         nuevo_pais = datos_actualizacion.get("pais")
         if nuevo_pais:
             nuevo_pais = nombre_pais_a_iso(nuevo_pais)
             datos_actualizacion["pais"] = nuevo_pais
 
-        # Código local y país son identidad de la ficha: solo pueden
-        # completarse/corregirse mientras sigue en Borrador.
         nuevo_codigo = datos_actualizacion.get("codigo_material_local")
         cambia_codigo = bool(nuevo_codigo) and nuevo_codigo != ficha.codigo_material_local
         cambia_pais = bool(nuevo_pais) and nuevo_pais != ficha.pais
@@ -876,9 +750,7 @@ class FichaService:
                 }
 
         if not cambios:
-            return ficha  # Sin cambios reales
-
-        # Validar campos requeridos si se modificó caracteristicas_contenido
+            return ficha  
         if "caracteristicas_contenido" in cambios:
             self._validar_contenido_por_tipo(
                     caracteristicas_contenido=ficha.caracteristicas_contenido,
@@ -888,7 +760,6 @@ class FichaService:
         ficha.fecha_actualizacion = datetime.now()
         self.db_session.add(ficha)
 
-        # Actualizar código de ficha (puede cambiar por estado o identidad)
         ficha.codigo_ficha_local = self._generar_codigo_ficha(
             codigo_material_local=ficha.codigo_material_local or "BORRADOR",
             pais=ficha.pais or "XX",
@@ -896,13 +767,11 @@ class FichaService:
             codigo_version=ficha.codigo_version,
         )
 
-        # Sincronizar kitem base
         kitem = await self.kitem_service.obtener_kitem(ficha.id_ficha)
         kitem.usuario_ultima_actualizacion = usuario
         kitem.fecha_actualizacion = datetime.now()
         self.db_session.add(kitem)
 
-        # Auditoría de modificación
         await self.auditoria.registrar(
             kitem_id=ficha.id_ficha,
             ktype=KTYPE_FICHA_TECNICA,
@@ -920,7 +789,6 @@ class FichaService:
         await self.db_session.commit()
         await self.db_session.refresh(ficha)
 
-        #--- Analisis automatico de anomalias ---
         try:
             resultado_anomalias = await self.anomalias.analizar_ficha(
                 id_ficha=ficha.id_ficha,
@@ -942,16 +810,7 @@ class FichaService:
         datos_actualizacion: dict,
         usuario: str,
     ) -> FichaTecnica:
-        """
-        Modifica una ficha Vigente:
-        1. Crea nueva versión en Borrador (con los datos actualizados)
-        2. Pasa la ficha vigente a Obsoleto automáticamente
-        3. Crea relación 'se_deriva_de' en el grafo
 
-        Returns:
-            La nueva ficha (nueva versión en Borrador).
-        """
-        # PASO 1: Crear nueva versión con datos heredados
         nueva_version = self._incrementar_version_simple(ficha_vigente.codigo_version)
         estado_inicial = ESTADO_PRELIMINAR
 
@@ -962,7 +821,6 @@ class FichaService:
             codigo_version=nueva_version,
         )
 
-        # Crear kitem base para la nueva versión
         kitem = await self.kitem_service.crear_kitem(
             KItemCreateSchema(
                 ktype=KTYPE_FICHA_TECNICA,
@@ -981,7 +839,6 @@ class FichaService:
             )
         )
 
-        # Heredar secciones de la ficha vigente y aplicar modificaciones
         secciones = {
             "caracteristicas": ficha_vigente.caracteristicas,
             "caracteristicas_contenido": ficha_vigente.caracteristicas_contenido,
@@ -990,7 +847,6 @@ class FichaService:
             "manejo_disposicion": ficha_vigente.manejo_disposicion,
         }
 
-        # Aplicar las modificaciones sobre las secciones heredadas
         cambios_aplicados = {}
         for campo, valor in datos_actualizacion.items():
             if campo in self.SECCIONES_EDITABLES and valor is not None:
@@ -1000,8 +856,6 @@ class FichaService:
                 }
                 secciones[campo] = valor
 
-        # Heredar el nombre local de la ficha vigente, permitiendo override
-        # si la modificación incluye un valor nuevo.
         nombre_local = ficha_vigente.nombre_local_material
         nuevo_nombre_local = datos_actualizacion.get("nombre_local_material")
         if nuevo_nombre_local and nuevo_nombre_local != nombre_local:
@@ -1011,13 +865,11 @@ class FichaService:
             }
             nombre_local = nuevo_nombre_local
 
-        # Validar campos requeridos si se modificó caracteristicas_contenido
         if "caracteristicas_contenido" in cambios_aplicados:
             self._validar_contenido_por_tipo(
                     caracteristicas_contenido=secciones["caracteristicas_contenido"],
             )
 
-        # Crear nueva ficha con secciones actualizadas
         nueva_ficha = FichaTecnica(
             id_ficha=kitem.id,
             id_material_corporativo=ficha_vigente.id_material_corporativo,
@@ -1026,17 +878,18 @@ class FichaService:
             nombre_local_material=nombre_local,
             codigo_version=nueva_version,
             pais=ficha_vigente.pais,
-            caracteristicas=secciones["caracteristicas"],
+
+            caracteristicas=clonar_imagenes_ficha(
+                ficha_vigente.id_ficha, kitem.id, secciones["caracteristicas"]
+            ),
             caracteristicas_contenido=secciones["caracteristicas_contenido"],
             empaque_estiba=secciones["empaque_estiba"],
             microbiologia=secciones["microbiologia"],
             manejo_disposicion=secciones["manejo_disposicion"],
         )
-        # estado, usuarios y fechas viven en kitem (única fuente de verdad)
         nueva_ficha.kitem = kitem
         self.db_session.add(nueva_ficha)
 
-        # PASO 2: Relación "se_deriva_de" en el grafo
         await self.kitem_service.crear_relacion(
             KItemRelacionCreateSchema(
                 source_id=kitem.id,
@@ -1047,7 +900,6 @@ class FichaService:
             )
         )
 
-        # PASO 3: Relación "pertenece_a" con el material
         await self.kitem_service.crear_relacion(
             KItemRelacionCreateSchema(
                 source_id=kitem.id,
@@ -1058,10 +910,6 @@ class FichaService:
             )
         )
 
-        # PASO 4: Pasar ficha vigente a Obsoleto automáticamente.
-        # estado/usuario/fecha viven en kitem y los escribe
-        # actualizar_estado_kitem (que lee el estado anterior para la
-        # auditoría, por lo que NO debe modificarse aquí antes).
         estado_anterior = ficha_vigente.estado_ficha
         await self.kitem_service.actualizar_estado_kitem(
             kitem_id=ficha_vigente.id_ficha,
@@ -1069,7 +917,6 @@ class FichaService:
             usuario=usuario,
         )
 
-        # Auditoría: obsolescencia de la ficha anterior
         await self.auditoria.registrar(
             kitem_id=ficha_vigente.id_ficha,
             ktype=KTYPE_FICHA_TECNICA,
@@ -1084,7 +931,6 @@ class FichaService:
             },
         )
 
-        # Auditoría: nueva versión con modificaciones
         await self.auditoria.registrar(
             kitem_id=kitem.id,
             ktype=KTYPE_FICHA_TECNICA,
@@ -1102,15 +948,8 @@ class FichaService:
         await self.db_session.commit()
         await self.db_session.refresh(nueva_ficha)
 
-        # Capturar el id antes del try: si el análisis ensucia la sesión, leer
-        # nueva_ficha.id_ficha en el except dispararía un PendingRollbackError.
         nueva_ficha_id = nueva_ficha.id_ficha
         try:
-            # La nueva versión se crea directamente en Preliminar, saltándose la
-            # transición Borrador→Preliminar donde normalmente se genera el
-            # embedding. Hay que generarlo aquí: sin él, la detección de
-            # duplicados (D3) y la búsqueda semántica no funcionan para esta
-            # versión.
             material = await self._validar_material(nueva_ficha.id_material_corporativo)
             caract = nueva_ficha.caracteristicas or {}
             campos_embedding = {
@@ -1137,12 +976,12 @@ class FichaService:
                 usuario=usuario,
                 contexto="actualizacion",
             )
-            await self.db_session.commit()  # Commit para persistir anomalías detectadas
-            nueva_ficha._anomalias = resultado_anomalias.anomalias  # Agregar anomalías al objeto ficha para respuesta
+            await self.db_session.commit() 
+            nueva_ficha._anomalias = resultado_anomalias.anomalias
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Error al analizar anomalías para ficha {nueva_ficha_id}: {e}")
-            nueva_ficha._anomalias = []  # Respuesta sin anomalías si falla el análisis
+            nueva_ficha._anomalias = []
 
         return nueva_ficha
     

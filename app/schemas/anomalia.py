@@ -1,23 +1,9 @@
-"""
-Schemas del módulo de detección de anomalías.
-
-Define los modelos Pydantic para:
-- Resultados de análisis (response)
-- Resolución de anomalías (request)
-- Consulta de anomalías históricas (request/response)
-"""
-
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-# ========================
-# Resultado de un análisis
-# ========================
-
 class AnomaliaDetectada(BaseModel):
-    """Una anomalía individual detectada durante el análisis."""
     tipo_anomalia: str
     severidad: str = "advertencia"
     campo_afectado: str | None = None
@@ -28,7 +14,6 @@ class AnomaliaDetectada(BaseModel):
 
 
 class ResultadoAnalisis(BaseModel):
-    """Resultado completo de un análisis de anomalías."""
     kitem_id: UUID
     ktype: str
     total_anomalias: int
@@ -38,29 +23,19 @@ class ResultadoAnalisis(BaseModel):
     anomalias: list[AnomaliaDetectada]
     analizado_en: datetime = Field(default_factory=datetime.now)
 
-
-# ========================
-# Request: Analizar
-# ========================
-
 class AnalizarFichaRequest(BaseModel):
-    """Request para analizar una ficha técnica existente."""
     id_ficha: UUID
-    usuario: str
+    # Ignorado: la identidad se toma del token JWT (get_usuario_nombre).
+    usuario: str | None = None
 
 
 class AnalizarMaterialRequest(BaseModel):
-    """Request para analizar un material comercial existente."""
     id_material: UUID
-    usuario: str
+    # Ignorado: la identidad se toma del token JWT (get_usuario_nombre).
+    usuario: str | None = None
 
-
-# ========================
-# Request: Resolver anomalía
-# ========================
 
 class ResolverAnomaliaRequest(BaseModel):
-    """Request para resolver (aceptar/descartar/corregir) una anomalía."""
     estado: str = Field(
         ...,
         description="Nuevo estado: 'aceptada', 'descartada' o 'corregida'",
@@ -69,15 +44,11 @@ class ResolverAnomaliaRequest(BaseModel):
         None,
         description="Nota explicativa de la resolución",
     )
-    usuario: str
+    # Ignorado: la identidad se toma del token JWT (get_usuario_nombre).
+    usuario: str | None = None
 
-
-# ========================
-# Response: Anomalía histórica
-# ========================
 
 class AnomaliaRegistroSchema(BaseModel):
-    """Schema de respuesta para una anomalía del repositorio histórico."""
     id: UUID
     kitem_id: UUID
     ktype: str
@@ -102,7 +73,6 @@ class AnomaliaRegistroSchema(BaseModel):
 
 
 class AnomaliaListResponse(BaseModel):
-    """Response para listar anomalías con metadata."""
     total: int
     anomalias: list[AnomaliaRegistroSchema]
     filtros_aplicados: dict | None = None

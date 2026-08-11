@@ -61,7 +61,7 @@ npm run lint
 
 ### Stack
 - **Backend**: FastAPI (async) + SQLAlchemy 2.0 + PostgreSQL + pgvector
-- **Frontend**: React 19 + React Router 7 + Tailwind CSS 4. Data fetching is done with **Axios + `useState`/`useEffect`** (client in `frontend/lib/api.js`); forms use plain `useState` + native `<form>`. NOTE: `@tanstack/react-query`, `react-hook-form` and `zod` are in `package.json` but **not actually used** — only `QueryClientProvider` is mounted in `App.jsx`. Do not assume they are wired.
+- **Frontend**: React 19 + React Router 7 + Tailwind CSS 4. Data fetching is done with **Axios + `useState`/`useEffect`** (client in `frontend/lib/api.js`); forms use plain `useState` + native `<form>`. NOTE: `@tanstack/react-query` is in `package.json` but **not actually used** — only `QueryClientProvider` is mounted in `App.jsx`. Do not assume it is wired. (`react-hook-form`, `@hookform/resolvers`, `zod` and `sonner` were declared but never imported; they have been uninstalled.)
 - **Auth**: LDAP/Active Directory (ldap3) with JWT fallback
 - **Embeddings**: sentence-transformers (`all-MiniLM-L6-v2`, 384-dim vectors via pgvector)
 

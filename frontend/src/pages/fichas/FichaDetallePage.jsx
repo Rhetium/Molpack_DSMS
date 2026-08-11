@@ -108,9 +108,9 @@ export default function FichaDetallePage() {
 
     setCambiandoEstado(true);
     try {
+      // La identidad la resuelve el backend desde el token JWT.
       await api.patch(`/ficha/${id}/estado`, {
         nuevo_estado: nuevoEstado,
-        usuario_actualizacion: 'marco.agrusa',
       });
       await cargar();
     } catch (error) {
@@ -123,9 +123,9 @@ export default function FichaDetallePage() {
 
   async function analizarAnomalias() {
     try {
+      // La identidad la resuelve el backend desde el token JWT.
       const res = await api.post('/anomalias/analizar/ficha', {
         id_ficha: id,
-        usuario: 'marco.agrusa',
       });
       alert(`Análisis completado: ${res.data.total_anomalias} anomalías detectadas`);
       await cargar();
@@ -161,7 +161,7 @@ export default function FichaDetallePage() {
     { id: 'caracteristicas', label: 'Características', icono: Ruler },
     { id: 'contenido', label: 'Contenido', icono: Egg },
     { id: 'empaque', label: 'Empaque y Estiba', icono: BoxSelect },
-    { id: 'microbiologia', label: 'Microbiología', icono: Bug },
+    { id: 'microbiologia', label: 'Inocuidad', icono: Bug },
     { id: 'manejo', label: 'Manejo y Disposición', icono: ShieldCheck },
     { id: 'imagenes', label: 'Imágenes', icono: Image },
     { id: 'versiones', label: `Versiones (${versiones.length})`, icono: History },

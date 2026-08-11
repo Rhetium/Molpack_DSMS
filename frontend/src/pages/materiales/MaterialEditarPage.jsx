@@ -78,10 +78,8 @@ export default function MaterialEditarPage() {
         if (v !== '' && v !== null) payload[k] = v;
       });
 
-      const res = await api.patch(`/material/${id}`, {
-        ...payload,
-        usuario: 'marco.agrusa',
-      });
+      // La identidad la resuelve el backend desde el token JWT.
+      const res = await api.patch(`/material/${id}`, payload);
 
       if (res.data.anomalias && res.data.anomalias.length > 0) {
         setAnomalias(res.data.anomalias);

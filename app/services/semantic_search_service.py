@@ -1,23 +1,3 @@
-"""
-Servicio de Búsqueda Semántica — Motor de búsqueda por similitud del Dataspace.
-
-Responsabilidades:
-1. Búsqueda semántica: encontrar k-items similares a un texto o a otro k-item
-2. Detección de duplicados: prevenir creación de k-items redundantes
-3. Asignación de embeddings: generar y almacenar embeddings en k-items
-4. Reindexación masiva: regenerar embeddings para k-items existentes
-
-Referencia DSMS (Nahshon et al., 2023):
-- Implementa "Semantic Search" de la Sección 2.3.4
-- Habilita descubrimiento de conocimiento sin relaciones explícitas
-- Prerequisito para detección de anomalías (Integration Level 4)
-
-Integración con arquitectura existente:
-- Usa KItem como supertipo universal (todo pasa por kitem)
-- Registra acciones de auditoría via AuditoriaService
-- Compatible con filtros por ktype y estado
-"""
-
 from uuid import UUID
 from datetime import datetime
 import logging
@@ -39,15 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 class BusquedaSemanticaService:
-    """Servicio central de búsqueda semántica del DSMS."""
 
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
         self.auditoria = AuditoriaService(db_session)
-
-    # =========================================================
-    # 1. ASIGNACIÓN DE EMBEDDINGS
-    # =========================================================
 
     async def asignar_embedding(
         self,
@@ -55,21 +30,7 @@ class BusquedaSemanticaService:
         campos_adicionales: dict | None = None,
         usuario: str = "sistema",
     ) -> KItem:
-        """
-        Genera y almacena el embedding de un k-item.
 
-        Se llama automáticamente desde los servicios de dominio
-        (MaterialService, FichaService) al crear o actualizar un k-item.
-
-        Args:
-            kitem_id: UUID del k-item.
-            campos_adicionales: Campos específicos del k-type para enriquecer
-                                el texto del embedding (categoría, tipo_producto, etc.)
-            usuario: Usuario que ejecuta la acción (para auditoría).
-
-        Returns:
-            El k-item actualizado con su embedding.
-        """
         result = await self.db_session.execute(
             select(KItem).where(KItem.id == kitem_id)
         )
@@ -77,7 +38,6 @@ class BusquedaSemanticaService:
         if not kitem:
             raise HTTPException(status_code=404, detail="K-Item no encontrado")
 
-        # Construir texto representativo y generar embedding
         texto = construir_texto_embedding(
             ktype=kitem.ktype,
             nombre=kitem.nombre,
@@ -87,13 +47,11 @@ class BusquedaSemanticaService:
         )
         embedding = generar_embedding(texto)
 
-        # Almacenar embedding en la columna vectorial
         kitem.embedding = embedding
         kitem.fecha_actualizacion = datetime.now()
         self.db_session.add(kitem)
         await self.db_session.flush()
 
-        # Auditoría
         await self.auditoria.registrar(
             kitem_id=kitem_id,
             ktype=kitem.ktype,
@@ -114,10 +72,6 @@ class BusquedaSemanticaService:
         )
         return kitem
 
-    # =========================================================
-    # 2. BÚSQUEDA SEMÁNTICA
-    # =========================================================
-
     async def buscar_por_texto(
         self,
         texto_consulta: str,
@@ -125,40 +79,18 @@ class BusquedaSemanticaService:
         estado: str | None = None,
         limite: int = 10,
         umbral_similitud: float = 0.0,
-        filtro_texto: str | None = None,  # ← NUEVO PARÁMETRO
+        filtro_texto: str | None = None,
     ) -> list[dict]:
-        """
-        Búsqueda híbrida: semántica + textual.
-
-        1. Busca por similitud coseno via pgvector (semántica)
-        2. Opcionalmente filtra por coincidencia textual en nombre/descripción (ILIKE)
-
-        Args:
-            texto_consulta: Texto libre para búsqueda semántica.
-            ktype: Filtrar por tipo de k-item.
-            estado: Filtrar por estado del k-item.
-            limite: Máximo de resultados.
-            umbral_similitud: Similitud mínima (0.0 a 1.0).
-            filtro_texto: Texto para filtro exacto (ILIKE) sobre nombre y descripción.
-                        Si se proporciona, solo retorna k-items cuyo nombre O
-                        descripción contengan este texto (case-insensitive).
-
-        Returns:
-            Lista de dicts con kitem y similitud, ordenados por relevancia.
-        """
         from sqlalchemy import or_
 
-        # Generar embedding del texto de consulta
         embedding_consulta = generar_embedding(texto_consulta)
 
-        # Construir condiciones base
         conditions = [KItem.embedding.isnot(None)]
         if ktype:
             conditions.append(KItem.ktype == ktype)
         if estado:
             conditions.append(KItem.estado == estado)
 
-        # Filtro textual (ILIKE = case-insensitive LIKE)
         if filtro_texto:
             patron = f"%{filtro_texto}%"
             conditions.append(
@@ -168,7 +100,6 @@ class BusquedaSemanticaService:
                 )
             )
 
-        # pgvector cosine distance
         distancia = KItem.embedding.cosine_distance(embedding_consulta)
 
         query = (
@@ -184,7 +115,6 @@ class BusquedaSemanticaService:
         result = await self.db_session.execute(query)
         filas = result.all()
 
-        # Filtrar por umbral y formatear respuesta
         resultados = []
         for kitem, similitud in filas:
             similitud_float = float(similitud)
@@ -209,24 +139,7 @@ class BusquedaSemanticaService:
         limite: int = 10,
         umbral_similitud: float = 0.0,
     ) -> list[dict]:
-        """
-        Encuentra k-items similares a uno existente.
 
-        Útil para:
-        - Exploración del dataspace ("¿qué se parece a este material?")
-        - Descubrimiento de relaciones semánticas implícitas
-        - Input para detección de anomalías
-
-        Args:
-            kitem_id: UUID del k-item de referencia.
-            ktype: Filtrar resultados por tipo (puede buscar similares entre tipos diferentes).
-            limite: Máximo de resultados.
-            umbral_similitud: Similitud mínima para incluir.
-
-        Returns:
-            Lista de dicts con kitem y similitud (excluyendo el k-item de referencia).
-        """
-        # Obtener embedding del k-item de referencia
         result = await self.db_session.execute(
             select(KItem).where(KItem.id == kitem_id)
         )
@@ -242,7 +155,6 @@ class BusquedaSemanticaService:
                 ),
             )
 
-        # Buscar similares excluyendo el propio k-item
         conditions = [
             KItem.embedding.isnot(None),
             KItem.id != kitem_id,
@@ -276,10 +188,6 @@ class BusquedaSemanticaService:
 
         return resultados
 
-    # =========================================================
-    # 3. DETECCIÓN DE DUPLICADOS
-    # =========================================================
-
     async def detectar_duplicados(
         self,
         nombre: str,
@@ -289,32 +197,7 @@ class BusquedaSemanticaService:
         umbral_duplicado: float = 0.85,
         limite: int = 5,
     ) -> list[dict]:
-        """
-        Detecta posibles duplicados ANTES de crear un nuevo k-item.
 
-        Se invoca desde el frontend durante el registro guiado para
-        alertar al usuario si ya existe un material/ficha similar.
-
-        El umbral por defecto (0.85) es conservador: solo alerta cuando
-        la similitud es alta. Se puede ajustar por k-type.
-
-        Umbrales recomendados:
-        - MaterialComercial: 0.85 (nombres de producto suelen ser únicos)
-        - FichaTecnica: 0.80 (fichas del mismo material son naturalmente similares)
-
-        Args:
-            nombre: Nombre del nuevo k-item candidato.
-            descripcion: Descripción del candidato.
-            ktype: Tipo de k-item (para filtrar entre el mismo tipo).
-            campos_adicionales: Campos específicos del k-type.
-            umbral_duplicado: Similitud mínima para considerar duplicado.
-            limite: Máximo de duplicados candidatos.
-
-        Returns:
-            Lista de posibles duplicados con similitud.
-            Lista vacía si no hay duplicados sospechosos.
-        """
-        # Construir texto representativo del candidato
         texto_candidato = construir_texto_embedding(
             ktype=ktype or "General",
             nombre=nombre,
@@ -322,7 +205,6 @@ class BusquedaSemanticaService:
             campos_adicionales=campos_adicionales,
         )
 
-        # Buscar similares con umbral alto
         resultados = await self.buscar_por_texto(
             texto_consulta=texto_candidato,
             ktype=ktype,
@@ -338,22 +220,13 @@ class BusquedaSemanticaService:
 
         return resultados
 
-    # =========================================================
-    # 4. REINDEXACIÓN
-    # =========================================================
-
     async def reindexar_kitem(
         self,
         kitem_id: UUID,
         campos_adicionales: dict | None = None,
         usuario: str = "sistema",
     ) -> KItem:
-        """
-        Regenera el embedding de un k-item específico.
 
-        Útil cuando se actualiza el nombre, descripción o campos
-        de un k-item existente.
-        """
         return await self.asignar_embedding(
             kitem_id=kitem_id,
             campos_adicionales=campos_adicionales,
@@ -367,24 +240,7 @@ class BusquedaSemanticaService:
         batch_size: int = 64,
         usuario: str = "sistema",
     ) -> dict:
-        """
-        Regenera embeddings para múltiples k-items.
 
-        Útil para:
-        - Migración inicial (cuando se activa pgvector por primera vez)
-        - Reindexación después de cambiar modelo de embeddings
-        - Generar embeddings para k-items que no los tienen
-
-        Args:
-            ktype: Filtrar por tipo (None = todos).
-            solo_sin_embedding: Si True, solo procesa k-items sin embedding.
-            batch_size: Tamaño del lote para procesamiento.
-            usuario: Usuario para auditoría.
-
-        Returns:
-            Dict con estadísticas del proceso.
-        """
-        # Seleccionar k-items a procesar
         conditions = []
         if ktype:
             conditions.append(KItem.ktype == ktype)
@@ -405,7 +261,6 @@ class BusquedaSemanticaService:
                 "mensaje": "No hay k-items pendientes de indexación.",
             }
 
-        # Generar textos para todos los k-items
         textos = []
         for kitem in kitems:
             texto = construir_texto_embedding(
@@ -416,11 +271,9 @@ class BusquedaSemanticaService:
             )
             textos.append(texto)
 
-        # Generar embeddings en batch (eficiente)
         logger.info(f"Generando embeddings para {len(textos)} k-items (batch={batch_size})")
         embeddings = generar_embeddings_batch(textos, batch_size=batch_size)
 
-        # Asignar embeddings a cada k-item
         for kitem, embedding in zip(kitems, embeddings):
             kitem.embedding = embedding
             kitem.fecha_actualizacion = datetime.now()
@@ -428,9 +281,9 @@ class BusquedaSemanticaService:
 
         await self.db_session.flush()
 
-        # Auditoría: registrar reindexación masiva (un solo evento resumen)
+
         await self.auditoria.registrar(
-            kitem_id=kitems[0].id,  # Referencia al primer k-item del lote
+            kitem_id=kitems[0].id,
             ktype=ktype or "TODOS",
             accion=ACCION_EMBEDDING_GENERADO,
             usuario=usuario,
@@ -452,28 +305,18 @@ class BusquedaSemanticaService:
             "dimension_embedding": EMBEDDING_DIMENSION,
         }
 
-    # =========================================================
-    # 5. ESTADÍSTICAS
-    # =========================================================
-
     async def obtener_estadisticas(self) -> dict:
-        """
-        Retorna estadísticas del estado de embeddings en el dataspace.
-        Útil para monitoreo y para el dashboard del frontend.
-        """
-        # Total k-items
+
         total_result = await self.db_session.execute(
             select(func.count(KItem.id))
         )
         total = total_result.scalar()
 
-        # K-items con embedding
         con_embedding_result = await self.db_session.execute(
             select(func.count(KItem.id)).where(KItem.embedding.isnot(None))
         )
         con_embedding = con_embedding_result.scalar()
 
-        # Desglose por ktype
         desglose_result = await self.db_session.execute(
             select(
                 KItem.ktype,

@@ -1,14 +1,3 @@
-"""
-Router de Exportación — Endpoints para generar PDF y Excel.
-
-Endpoints:
-    GET /export/ficha/{id_ficha}/pdf  — Genera PDF de una ficha (con plantilla opcional)
-    GET /export/fichas/excel          — Exporta listado de fichas a Excel
-
-La plantilla PDF se configura en: app/templates/plantilla_ficha.pdf
-Si no existe, genera PDF sin plantilla (formato limpio propio).
-"""
-
 import os
 from uuid import UUID
 
@@ -17,11 +6,16 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_session
+from app.core.security import get_usuario_actual
 from app.services.export_service import ExportService
 
 import io
 
-router = APIRouter(prefix="/export", tags=["Exportación"])
+router = APIRouter(
+    prefix="/export",
+    tags=["Exportación"],
+    dependencies=[Depends(get_usuario_actual)],
+)
 
 # Ruta donde el usuario coloca su plantilla PDF
 PLANTILLA_PATH = os.path.join(
@@ -40,14 +34,7 @@ async def exportar_ficha_pdf(
     id_ficha: UUID,
     service: ExportService = Depends(get_export_service),
 ):
-    """
-    Genera PDF de la ficha técnica.
 
-    Si existe app/templates/plantilla_ficha.pdf, escribe los datos
-    sobre esa plantilla. Si no existe, genera PDF con formato propio.
-
-    Solo fichas en estado Preliminar o Vigente.
-    """
     plantilla = PLANTILLA_PATH if os.path.exists(PLANTILLA_PATH) else None
 
     pdf_bytes = await service.exportar_ficha_pdf(id_ficha, plantilla_path=plantilla)
@@ -65,10 +52,6 @@ async def exportar_ficha_pdf(
 async def exportar_fichas_excel(
     service: ExportService = Depends(get_export_service),
 ):
-    """
-    Exporta listado de fichas Preliminares y Vigentes a Excel.
-    Incluye características principales.
-    """
     xlsx_bytes = await service.exportar_fichas_excel()
 
     return StreamingResponse(

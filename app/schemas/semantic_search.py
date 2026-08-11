@@ -1,24 +1,9 @@
-"""
-Schemas de Búsqueda Semántica — Request/Response para la API.
-
-Define los schemas Pydantic para:
-- Búsqueda semántica por texto libre
-- Detección de duplicados
-- Resultados de búsqueda con similitud
-- Estadísticas de embeddings
-"""
-
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-# ============================================================
-# Request Schemas
-# ============================================================
-
 class BusquedaSemanticaRequest(BaseModel):
-    """Request para búsqueda semántica por texto libre."""
 
     texto: str = Field(
         ...,
@@ -53,7 +38,6 @@ class BusquedaSemanticaRequest(BaseModel):
 
 
 class DeteccionDuplicadosRequest(BaseModel):
-    """Request para detección de duplicados pre-creación."""
 
     nombre: str = Field(
         ...,
@@ -97,8 +81,6 @@ class DeteccionDuplicadosRequest(BaseModel):
 
 
 class ReindexacionMasivaRequest(BaseModel):
-    """Request para reindexación masiva de embeddings."""
-
     ktype: str | None = Field(
         default=None,
         description="Filtrar por tipo (None = todos los k-items).",
@@ -114,13 +96,7 @@ class ReindexacionMasivaRequest(BaseModel):
         description="Tamaño del lote para procesamiento.",
     )
 
-
-# ============================================================
-# Response Schemas
-# ============================================================
-
 class KItemBusquedaSchema(BaseModel):
-    """Schema de k-item en resultados de búsqueda (sin embedding)."""
 
     id: UUID
     ktype: str
@@ -136,7 +112,6 @@ class KItemBusquedaSchema(BaseModel):
 
 
 class ResultadoBusquedaSchema(BaseModel):
-    """Un resultado individual de búsqueda semántica."""
 
     kitem: KItemBusquedaSchema
     similitud: float = Field(
@@ -148,7 +123,6 @@ class ResultadoBusquedaSchema(BaseModel):
 
 
 class BusquedaSemanticaResponse(BaseModel):
-    """Response completa de búsqueda semántica."""
 
     consulta: str
     total_resultados: int
@@ -160,7 +134,6 @@ class BusquedaSemanticaResponse(BaseModel):
 
 
 class DeteccionDuplicadosResponse(BaseModel):
-    """Response de detección de duplicados."""
 
     nombre_candidato: str
     hay_duplicados: bool = Field(
@@ -175,7 +148,6 @@ class DeteccionDuplicadosResponse(BaseModel):
 
 
 class ReindexacionResponse(BaseModel):
-    """Response de reindexación masiva."""
 
     procesados: int
     ktype: str
@@ -184,7 +156,6 @@ class ReindexacionResponse(BaseModel):
 
 
 class EstadisticasEmbeddingKtype(BaseModel):
-    """Estadísticas de embedding por k-type."""
 
     ktype: str
     total: int
@@ -193,7 +164,6 @@ class EstadisticasEmbeddingKtype(BaseModel):
 
 
 class EstadisticasEmbeddingResponse(BaseModel):
-    """Response de estadísticas generales de embeddings."""
 
     total_kitems: int
     con_embedding: int

@@ -169,21 +169,17 @@ desarrollo hace Vite:
 1. Provisionar PostgreSQL 14+ y crear la base de datos.
 2. Habilitar extensiones (el script ya lo hace):
    ```sql
-   CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-   CREATE EXTENSION IF NOT EXISTS "vector";      -- pgvector
+   CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+   CREATE EXTENSION IF NOT EXISTS vector;     -- pgvector
    ```
 3. Crear el esquema:
    ```bash
-   psql -U <user> -d <db> -f scripts/create_tables.sql
+   psql -U <user> -d <db> -f scripts/schema_clean.sql
    ```
-4. **Índice vectorial (recomendado al crecer el catálogo):** el índice IVFFlat
-   de pgvector está **comentado** en `scripts/create_tables.sql` (sección 7). Con
-   pocos registros la búsqueda por escaneo completo es suficiente; con volumen
-   alto, descomentarlo y crearlo **después** de cargar datos:
-   ```sql
-   CREATE INDEX ix_kitem_embedding_ivfflat
-     ON kitem USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50);
-   ```
+4. **Índice vectorial:** `schema_clean.sql` ya crea el índice HNSW sobre
+   `kitem.embedding` (`vector_cosine_ops`, `m = 16`, `ef_construction = 64`).
+   No requiere acción manual. A diferencia de IVFFlat, HNSW no necesita datos
+   precargados para construirse ni reajustar el parámetro `lists`.
 5. ⚠️ **Motor con logging verboso:** el engine se crea con `echo=True`
    ([app/core/database.py](../app/core/database.py)), lo que imprime **todo el
    SQL ejecutado** (incluye valores). En producción cambiar a `echo=False` para
@@ -200,9 +196,21 @@ Implementado en [app/core/security.py](../app/core/security.py):
 - Tokens **JWT firmados con HS256**, expiración configurable
   (`JWT_EXPIRATION_HOURS`, por defecto **8 horas**).
 - El token se emite en `POST /auth/login` y se exige en el header
-  `Authorization: Bearer <token>` para **todos** los routers de datos, gracias a
-  la dependencia global `Depends(get_usuario_actual)` registrada en
-  [app/main.py](../app/main.py).
+  `Authorization: Bearer <token>` en **todos** los routers de datos. El
+  mecanismo es `dependencies=[Depends(get_usuario_actual)]` declarado en cada
+  `APIRouter`, lo que aplica la validación a todos sus endpoints sin repetirla
+  por handler. `POST /auth/login` es la única ruta pública: no puede exigir el
+  token que ella misma emite.
+- **Cobertura verificada automáticamente:**
+  [tests/test_routers_autenticacion.py](../tests/test_routers_autenticacion.py)
+  recorre el esquema OpenAPI real y falla si algún endpoint responde algo
+  distinto de 401 sin credenciales. Un router nuevo queda cubierto sin tocar
+  el test.
+- **La identidad para auditoría se toma del token**, nunca del cuerpo de la
+  petición, mediante la dependencia `get_usuario_nombre`. Los campos `usuario`
+  y `usuario_creador` que aún aceptan los schemas se conservan solo por
+  compatibilidad y **se descartan**: un cliente no puede atribuirse acciones a
+  nombre de un tercero.
 - `GET /auth/me` valida vigencia; `POST /auth/refresh` renueva el token.
 - El payload contiene: usuario, nombre, rol, iniciales, email, método, `iat`,
   `exp`. **No** contiene contraseñas.
@@ -260,11 +268,14 @@ propagar la IP real (`X-Forwarded-For`) o el conteo será por la IP del proxy.
 
 ### 6.6 Superficie de red
 
-- **Endpoint público sin autenticación:** `GET /ficha/{id}/imagen/{tipo}` se sirve
-  sin token (se consume vía `<img src>`). Cualquiera con el **UUID** de una ficha
-  puede recuperar sus imágenes. Si las imágenes son sensibles, protegerlas
-  (token en query firmado, o servir tras el proxy con auth). El resto de la API
-  exige JWT.
+- **Toda la API exige JWT**, incluidas las imágenes. `GET /ficha/{id}/imagen/{tipo}`
+  requiere token, por lo que **no** puede consumirse desde un `<img src>` —las
+  etiquetas `<img>` no envían el header `Authorization`—. El frontend descarga
+  cada imagen con el cliente Axios (`responseType: 'blob'`) y la expone mediante
+  un *object URL* local; ver
+  [ImagenesFicha.jsx](../frontend/src/pages/fichas/ImagenesFicha.jsx). Las
+  exportaciones a PDF y Excel siguen el mismo patrón.
+- Conocer el UUID de una ficha ya no basta para recuperar sus imágenes.
 
 ---
 

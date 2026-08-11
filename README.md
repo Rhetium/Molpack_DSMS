@@ -89,7 +89,7 @@ Los modelos ML (detector 6) se entrenan con `POST /anomalias/entrenar` y se guar
 
 ```bash
 # Crear esquema desde cero
-psql -U <user> -d <db> -f scripts/create_tables.sql
+psql -U <user> -d <db> -f scripts/schema_clean.sql
 
 # Limpiar datos (mantiene estructura)
 psql -U <user> -d <db> -f scripts/truncate_all.sql

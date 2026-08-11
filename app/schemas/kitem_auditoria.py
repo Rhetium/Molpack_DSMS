@@ -4,7 +4,6 @@ from pydantic import BaseModel
 
 
 class AuditoriaSchema(BaseModel):
-    """Schema de lectura para un evento de auditoría."""
 
     id: UUID
     kitem_id: UUID | None = None
@@ -21,7 +20,6 @@ class AuditoriaSchema(BaseModel):
 
 
 class AuditoriaResumenSchema(BaseModel):
-    """Schema resumido para listados de auditoría."""
 
     id: UUID
     kitem_id: UUID | None = None

@@ -4,9 +4,6 @@ from pydantic import BaseModel
 
 
 class KItemCreateSchema(BaseModel):
-    """Schema interno para crear el registro base kitem.
-    Normalmente no se usa directo desde la API — los servicios
-    de MaterialComercial y FichaTecnica lo crean automáticamente."""
 
     ktype: str
     nombre: str
@@ -17,7 +14,6 @@ class KItemCreateSchema(BaseModel):
 
 
 class KItemSchema(BaseModel):
-    """Schema de lectura para un k-item base."""
 
     id: UUID
     ktype: str
@@ -35,7 +31,6 @@ class KItemSchema(BaseModel):
 
 
 class KItemLiteSchema(BaseModel):
-    """Schema reducido de k-item para anidar en relaciones."""
 
     id: UUID
     ktype: str
