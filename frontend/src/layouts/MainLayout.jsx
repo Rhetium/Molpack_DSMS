@@ -49,7 +49,7 @@ export default function MainLayout() {
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <img src="../../public/LOGO MONO MOLPACK.png" alt="Molpack" className="w-8 h-8 rounded-lg" />
+            <img src="/LOGO MONO MOLPACK.png" alt="Molpack" className="w-8 h-8 rounded-lg" />
             <div>
               <h1 className="text-sm font-bold text-white">DSMS</h1>
               <p className="text-xs text-white/50">Molpack Corporation</p>
@@ -122,7 +122,7 @@ export default function MainLayout() {
               Dataspace Management System
             </p>
           </div>
-          <img src="../../public/LOGO MOLPACK 450x240pixeles.png" alt="Molpack" className="h-24 hidden sm:block" />
+          <img src="/LOGO MOLPACK 450x240pixeles.png" alt="Molpack" className="h-24 hidden sm:block" />
         </header>
 
         {/* Contenido de la página */}

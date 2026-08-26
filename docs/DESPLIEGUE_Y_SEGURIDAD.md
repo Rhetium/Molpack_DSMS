@@ -18,8 +18,10 @@ Molpack DSMS es una aplicación web de gestión de fichas técnicas compuesta po
 - **Base de datos** PostgreSQL con las extensiones **pgvector** y **uuid-ossp**.
 - **Autenticación** contra **Active Directory (LDAP)** con emisión de tokens JWT.
 
-El repositorio **no incluye** Dockerfile, docker-compose ni pipeline de CI/CD:
-el despliegue es **manual**. El código está preparado para funcionar pero
+El repositorio incluye `Dockerfile` y `docker-compose.yml` para un despliegue
+en dos contenedores (base + aplicación); el procedimiento está en
+[DESPLIEGUE_DOCKER.md](DESPLIEGUE_DOCKER.md). No hay pipeline de CI/CD: el
+despliegue se dispara a mano. El código está preparado para funcionar pero
 **no está endurecido para producción de fábrica**; la Sección 7 lista lo que TI
 debe configurar antes de publicarlo.
 
@@ -27,11 +29,14 @@ debe configurar antes de publicarlo.
 
 | # | Bloqueador | Impacto | Sección |
 |---|---|---|---|
-| 1 | `requirements.txt` **incompleto** (faltan PyJWT, ldap3, reportlab, pypdf, openpyxl) | La app arranca pero falla en runtime al autenticar/exportar | 3.1 |
-| 2 | Sin **CORS/TLS/reverse proxy** configurado | El navegador bloquea llamadas si front y back no son mismo origen; tráfico sin cifrar | 7 |
-| 3 | Motor de BD con `echo=True` | Registra **todo el SQL** (incl. datos) en consola: ruido y fuga de información | 7 |
-| 4 | **Usuarios locales hardcodeados** (`admin/admin`, etc.) siempre activos | Acceso con credenciales por defecto | 6.3 / 7 |
-| 5 | `JWT_SECRET` con valor por defecto si no se define en `.env` | Tokens falsificables | 6.1 / 7 |
+| 1 | Sin **TLS** configurado | Tráfico en claro, incluido el JWT | 7 |
+| 2 | **Usuarios locales hardcodeados** (`admin/admin`, etc.) siempre activos | Acceso con credenciales por defecto | 6.3 / 7 |
+| 3 | `JWT_SECRET` con valor por defecto si no se define en `.env` | Tokens falsificables | 6.1 / 7 |
+
+> Resueltos respecto de versiones anteriores de este documento:
+> `requirements.txt` ya lista todas las dependencias; **CORS** dejó de aplicar
+> porque la SPA y la API se sirven desde el mismo origen (Sección 4); y el
+> `echo` del motor de BD pasó a ser configurable (Sección 5).
 
 ---
 
@@ -39,20 +44,21 @@ debe configurar antes de publicarlo.
 
 ```
                            ┌──────────────────────────┐
-   Navegador del usuario   │  Reverse proxy / TLS      │   (TI debe proveer:
-   (HTTPS) ───────────────▶│  Nginx / IIS / Traefik    │    Nginx o similar)
-                           │  · sirve estáticos (SPA)  │
-                           │  · enruta /api → :8000    │
+   Navegador del usuario   │  Reverse proxy / TLS      │   (TI debe proveer;
+   (HTTPS) ───────────────▶│  Nginx / IIS / Traefik    │    solo termina TLS,
+                           │  · proxy_pass a :8000     │    sin reescrituras)
                            └────────────┬──────────────┘
-                        estáticos │            │ /api (proxy)
-                    ┌─────────────▼──┐   ┌─────▼─────────────────┐
-                    │  Frontend SPA  │   │  Backend FastAPI      │
-                    │  (dist/ Vite)  │   │  uvicorn :8000        │
-                    └────────────────┘   └───┬───────────┬───────┘
-                                             │           │
-                              LDAP/LDAPS ────┘           └──── PostgreSQL
-                              (389 / 636)                       (5432)
-                              a Domain Controller               + pgvector
+                                        │
+                           ┌────────────▼──────────────┐
+                           │  Backend FastAPI          │
+                           │  uvicorn :8000            │
+                           │  · SPA compilada en  /    │
+                           │  · API en           /api  │
+                           └───┬───────────────┬───────┘
+                               │               │
+                LDAP/LDAPS ────┘               └──── PostgreSQL
+                (389 / 636)                           (5432)
+                a Domain Controller                   + pgvector
 ```
 
 **Puertos involucrados:**
@@ -83,29 +89,21 @@ debe configurar antes de publicarlo.
 
 ## 3. Despliegue del backend
 
-### 3.1 ⚠️ Dependencias (corregir antes de instalar)
+> **Vía recomendada:** con Docker, esta sección y la 4 quedan cubiertas por el
+> `Dockerfile` — ver [DESPLIEGUE_DOCKER.md](DESPLIEGUE_DOCKER.md). Lo que sigue
+> aplica a una instalación directa sobre el sistema operativo.
 
-`requirements.txt` **no lista todas** las dependencias que el código importa.
-Faltan las siguientes (se usan en autenticación, seguridad y exportación):
+### 3.1 Dependencias
 
-```
-PyJWT          # JWT (app/core/security.py)
-ldap3          # Active Directory (app/services/auth_service.py)
-reportlab      # PDF (app/services/export_service.py)
-pypdf          # PDF con plantilla
-openpyxl       # Exportación a Excel
-```
-
-**Acción:** agregarlas a `requirements.txt` (con versiones fijadas) o instalarlas
-explícitamente. Sin ellas, la app **arranca** pero devuelve error 500 al iniciar
-sesión o exportar.
+`requirements.txt` lista todas las dependencias con versión fijada, incluidas
+las de autenticación y exportación (PyJWT, ldap3, reportlab, pypdf, openpyxl).
 
 ### 3.2 Instalación
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r requirements.txt      # + las dependencias faltantes de 3.1
+pip install -r requirements.txt
 ```
 
 ### 3.3 Ejecución en producción
@@ -149,14 +147,20 @@ npm install
 npm run build        # genera frontend/dist/
 ```
 
-Servir el contenido de `frontend/dist/` desde el reverse proxy, y **enrutar
-`/api` hacia el backend** (`http://127.0.0.1:8000`), replicando el proxy que en
-desarrollo hace Vite:
+**El propio backend sirve esos archivos**: [app/main.py](../app/main.py) monta
+`frontend/dist/` en `/` (con fallback a `index.html`, para que recargar una
+ruta de React Router no dé 404) y expone toda la API bajo el prefijo `/api` —
+el mismo que usa el cliente Axios.
 
-- En dev, [frontend/vite.config.js](../frontend/vite.config.js) reescribe
-  `'/api' → target :8000` quitando el prefijo `/api`.
-- En **producción, el reverse proxy debe hacer lo mismo** (p. ej. en Nginx
-  `location /api/ { proxy_pass http://127.0.0.1:8000/; }`).
+Consecuencias:
+
+- **No hace falta reescribir rutas** en ningún reverse proxy: las URLs son
+  idénticas en desarrollo y en producción.
+- **No hace falta configurar CORS**: SPA y API comparten origen.
+- Un reverse proxy delante sigue siendo necesario para **TLS**, pero su
+  configuración se reduce a un `proxy_pass` directo sin transformaciones.
+- Si `frontend/dist/` no existe, el montaje se omite y el backend sirve solo la
+  API (es el caso en desarrollo, donde la SPA la sirve `npm run dev`).
 
 > Nota: `vite.config.js` tiene `host: '0.0.0.0'` y `allowedHosts:
 > ['.ngrok-free.dev']` — esto es para **túneles de demostración con ngrok** en
@@ -180,10 +184,14 @@ desarrollo hace Vite:
    `kitem.embedding` (`vector_cosine_ops`, `m = 16`, `ef_construction = 64`).
    No requiere acción manual. A diferencia de IVFFlat, HNSW no necesita datos
    precargados para construirse ni reajustar el parámetro `lists`.
-5. ⚠️ **Motor con logging verboso:** el engine se crea con `echo=True`
-   ([app/core/database.py](../app/core/database.py)), lo que imprime **todo el
-   SQL ejecutado** (incluye valores). En producción cambiar a `echo=False` para
-   evitar ruido y fuga de datos en logs.
+5. **Logging del motor:** el `echo` del engine se controla con la variable
+   `DB_ECHO` ([app/core/database.py](../app/core/database.py)) y viene
+   **desactivado por defecto**. Activarlo imprime todo el SQL ejecutado,
+   incluidos los valores: usarlo solo para depurar, nunca en producción.
+
+> Con Docker, los pasos 1–3 los realiza el contenedor `db` automáticamente:
+> la imagen `pgvector/pgvector:pg16` trae la extensión y `schema_clean.sql` se
+> ejecuta en la inicialización del volumen.
 
 ---
 
@@ -284,8 +292,6 @@ propagar la IP real (`X-Forwarded-For`) o el conteo será por la IP del proxy.
 Acciones **obligatorias/recomendadas** antes de exponer el sistema. Ninguna
 está resuelta "de fábrica" en el repositorio:
 
-- [ ] **Completar `requirements.txt`** con PyJWT, ldap3, reportlab, pypdf,
-      openpyxl (Sección 3.1).
 - [ ] **`JWT_SECRET` fuerte y único** por entorno; nunca el valor por defecto.
 - [ ] **Deshabilitar/eliminar usuarios locales** hardcodeados y el bypass del
       usuario `admin` (Sección 6.3), o restringirlos a un entorno de soporte
@@ -293,10 +299,7 @@ está resuelta "de fábrica" en el repositorio:
 - [ ] **Terminación TLS/HTTPS** en el reverse proxy (la app sirve HTTP plano).
 - [ ] **Usar LDAPS (636) o StartTLS** hacia el AD para no enviar credenciales en
       claro (Sección 8).
-- [ ] **Configurar CORS** si el frontend se sirve desde un origen distinto al
-      backend. **Actualmente no hay `CORSMiddleware`**; el modelo funciona solo
-      si front y `/api` comparten origen vía el reverse proxy.
-- [ ] **`echo=False`** en el engine de BD (Sección 5).
+- [ ] **`DB_ECHO=false`** (valor por defecto) en el entorno (Sección 5).
 - [ ] **Propagar la IP real** (`X-Forwarded-For`) al backend para que el rate
       limiter y los logs no vean solo la IP del proxy.
 - [ ] **Gestión de secretos:** `.env` fuera del control de versiones (ya está en

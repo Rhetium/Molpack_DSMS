@@ -1,22 +1,3 @@
-"""
-Modelo KItemRelacion — Grafo de conocimiento del Dataspace.
-
-Implementa el concepto de k-item linkage (Sección 2.3.2 del paper DSMS):
-- Relaciones genéricas: k-item A "está relacionado con" k-item B
-- Relaciones semánticas: k-item A "se deriva de" k-item B
-
-Cada relación conecta dos k-items de cualquier tipo, formando un grafo
-dirigido de conocimiento que puede explorarse, consultarse y analizarse.
-
-Tipos de relación predefinidos para Molpack:
-- "pertenece_a":      FichaTecnica → MaterialComercial
-- "se_deriva_de":     FichaTecnica → FichaTecnica (versionamiento)
-- "cumple_norma":     MaterialComercial → Norma (futuro)
-- "tiene_incidencia": FichaTecnica → Incidencia (futuro)
-- "es_variante_de":   MaterialComercial → MaterialComercial
-- "relacionado_con":  relación genérica entre cualquier par de k-items
-"""
-
 from sqlalchemy import Column, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship

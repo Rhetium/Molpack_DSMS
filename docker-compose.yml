@@ -1,0 +1,57 @@
+# =============================================================
+# Molpack DSMS — despliegue con dos contenedores: base y aplicacion.
+#
+#   docker compose up -d --build
+#
+# Las variables se leen del archivo .env (ver .env.example).
+# =============================================================
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Se ejecuta una unica vez, cuando el volumen esta vacio: crea las
+      # extensiones (pgcrypto, vector), las tablas y el indice HNSW.
+      - ./scripts/schema_clean.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    # Sin `ports`: la base solo es accesible desde la red interna de Compose.
+    # Para administrarla desde tu equipo, usar tunel SSH contra el host.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Sobrescriben lo que traiga .env: dentro de Compose la base se
+      # resuelve por el nombre del servicio, no por localhost.
+      DB_HOST: db
+      DB_PORT: "5432"
+      # Nombre completo del modelo que quedo cacheado en la imagen.
+      EMBEDDING_MODEL_NAME: sentence-transformers/all-MiniLM-L6-v2
+    ports:
+      # Mientras no haya TLS, el trafico va en HTTP plano: exponer solo en
+      # la red interna de Molpack. Al montar el reverse proxy, cambiar por
+      # "127.0.0.1:${APP_PORT:-8000}:8000".
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # Imagenes subidas por los usuarios: dato de negocio, incluir en backups.
+      - ./uploads:/app/uploads
+      # Modelos Isolation Forest entrenados (regenerables desde la app).
+      - mlmodels:/app/app/ml_models
+
+volumes:
+  pgdata:
+  mlmodels:

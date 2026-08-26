@@ -24,9 +24,12 @@ from app.routers.ficha import get_ficha_service
 from app.routers.material import get_material_service
 
 
+# Prefijo bajo el que app/main.py monta todos los routers.
+API = "/api"
+
 # Rutas que deben permanecer accesibles sin token, con su justificación.
 RUTAS_PUBLICAS = {
-    ("/auth/login", "post"),  # No puede exigir token: es quien lo emite.
+    (f"{API}/auth/login", "post"),  # No puede exigir token: es quien lo emite.
 }
 
 METODOS_CON_CUERPO = {"post", "patch", "put"}
@@ -97,7 +100,7 @@ def test_ruta_publica_no_exige_token(cliente, ruta, metodo):
 
 def test_token_invalido_es_rechazado(cliente):
     respuesta = cliente.get(
-        "/auth/me",
+        f"{API}/auth/me",
         headers={"Authorization": "Bearer token.falsificado.xxx"},
     )
     assert respuesta.status_code == 401
@@ -106,7 +109,7 @@ def test_token_invalido_es_rechazado(cliente):
 
 def test_token_valido_es_aceptado(cliente, token_valido):
     respuesta = cliente.get(
-        "/auth/me",
+        f"{API}/auth/me",
         headers={"Authorization": f"Bearer {token_valido}"},
     )
     assert respuesta.status_code == 200
@@ -143,7 +146,7 @@ def test_crear_ficha_ignora_el_usuario_del_cuerpo(cliente, token_valido):
     app.dependency_overrides[get_ficha_service] = lambda: espia
 
     respuesta = cliente.post(
-        "/ficha",
+        f"{API}/ficha",
         headers={"Authorization": f"Bearer {token_valido}"},
         json={
             "id_material_corporativo": UUID_CERO,
@@ -160,7 +163,7 @@ def test_cambio_de_estado_usa_el_usuario_del_token(cliente, token_valido):
     app.dependency_overrides[get_ficha_service] = lambda: espia
 
     respuesta = cliente.patch(
-        f"/ficha/{UUID_CERO}/estado",
+        f"{API}/ficha/{UUID_CERO}/estado",
         headers={"Authorization": f"Bearer {token_valido}"},
         json={
             "nuevo_estado": "Preliminar",
@@ -177,7 +180,7 @@ def test_actualizar_ficha_usa_el_usuario_del_token(cliente, token_valido):
     app.dependency_overrides[get_ficha_service] = lambda: espia
 
     respuesta = cliente.patch(
-        f"/ficha/{UUID_CERO}",
+        f"{API}/ficha/{UUID_CERO}",
         headers={"Authorization": f"Bearer {token_valido}"},
         json={
             "nombre_local_material": "Cambio",
@@ -194,7 +197,7 @@ def test_crear_material_ignora_el_usuario_del_cuerpo(cliente, token_valido):
     app.dependency_overrides[get_material_service] = lambda: espia
 
     respuesta = cliente.post(
-        "/material",
+        f"{API}/material",
         headers={"Authorization": f"Bearer {token_valido}"},
         json={
             "nombre_corporativo": "Material de prueba",
@@ -213,7 +216,7 @@ def test_transicion_no_se_atribuye_a_sistema(cliente, token_valido):
     app.dependency_overrides[get_ficha_service] = lambda: espia
 
     respuesta = cliente.post(
-        f"/ficha/{UUID_CERO}/publicar",
+        f"{API}/ficha/{UUID_CERO}/publicar",
         headers={"Authorization": f"Bearer {token_valido}"},
     )
 

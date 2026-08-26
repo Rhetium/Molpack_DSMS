@@ -13,7 +13,11 @@ DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+# En produccion debe quedar en false: con echo activo se imprime todo el SQL
+# ejecutado, incluidos los valores, en los logs del contenedor.
+DB_ECHO = os.getenv("DB_ECHO", "false").lower() in ("1", "true", "yes")
+
+engine = create_async_engine(DATABASE_URL, echo=DB_ECHO)
 
 AsyncSessionLocal = sessionmaker(
     bind=engine,

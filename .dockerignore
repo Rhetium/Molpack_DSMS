@@ -1,0 +1,32 @@
+# Secretos: las variables llegan por docker-compose, nunca dentro de la imagen
+.env
+.env.*
+!.env.example
+
+# Entornos y artefactos locales
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# El frontend se compila dentro de la imagen (etapa `frontend`)
+frontend/node_modules/
+frontend/dist/
+
+# Datos y salidas: van en volumenes, no en la imagen
+uploads/
+backups/
+app/ml_models/*.pkl
+app/ml_models/*.joblib
+
+# Repositorio y documentacion
+.git/
+.gitignore
+.gitattributes
+.claude/
+docs/
+tests/
+*.md

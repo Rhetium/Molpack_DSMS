@@ -103,7 +103,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Logo móvil */}
           <div className="lg:hidden mb-10 text-center">
-            <img src="/logo-molpack.png" alt="Molpack" className="h-12 mx-auto mb-4" />
+            <img src="/LOGO MOLPACK 450x240pixeles.png" alt="Molpack" className="h-12 mx-auto mb-4" />
           </div>
 
           {/* Header */}
@@ -198,7 +198,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-xs text-gray-400 mt-8">
-            DSMS v1.0 — Tesis de Grado 2025
+            Molpack DSMS v1.0
           </p>
         </div>
       </div>

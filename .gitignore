@@ -33,3 +33,8 @@ frontend/dist/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Claves SSH: nunca deben vivir en el repositorio (van en ~/.ssh)
+id_ed25519*
+id_rsa*
+*.pem
