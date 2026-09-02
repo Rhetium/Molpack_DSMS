@@ -29,24 +29,33 @@ debe configurar antes de publicarlo.
 
 | # | Bloqueador | Impacto | Sección |
 |---|---|---|---|
-| 1 | Sin **TLS** configurado | Tráfico en claro, incluido el JWT | 7 |
-| 2 | **Usuarios locales hardcodeados** (`admin/admin`, etc.) siempre activos | Acceso con credenciales por defecto | 6.3 / 7 |
-| 3 | `JWT_SECRET` con valor por defecto si no se define en `.env` | Tokens falsificables | 6.1 / 7 |
+| 1 | `JWT_SECRET` con valor por defecto si no se define en `.env` | Tokens falsificables | 6.1 / 7 |
+| 2 | **Certificado TLS** no emitido aún por la CA interna | Advertencia de certificado en cada navegador; HSTS no puede habilitarse | 7 |
 
 > Resueltos respecto de versiones anteriores de este documento:
 > `requirements.txt` ya lista todas las dependencias; **CORS** dejó de aplicar
-> porque la SPA y la API se sirven desde el mismo origen (Sección 4); y el
-> `echo` del motor de BD pasó a ser configurable (Sección 5).
+> porque la SPA y la API se sirven desde el mismo origen (Sección 4); el `echo`
+> del motor de BD pasó a ser configurable (Sección 5); el despliegue **termina
+> TLS** con su propio nginx (Sección 1); los **usuarios locales** se apagan al
+> configurar LDAP (Sección 6.3); y la **IP real** del usuario llega al backend
+> (Sección 6.2).
 
 ---
 
 ## 1. Arquitectura de despliegue
 
+Molpack **no** cuenta con reverse proxy corporativo ni balanceador que termine
+TLS, así que el propio despliegue lo resuelve: el `docker-compose.yml` incluye
+un contenedor **nginx** bajo el perfil `tls`
+([deploy/nginx/dsms.conf](../deploy/nginx/dsms.conf)). Lo único que TI debe
+proveer es el **certificado** para `mksvx64lnn10.molpack.org`, emitido por la CA
+interna del dominio.
+
 ```
                            ┌──────────────────────────┐
-   Navegador del usuario   │  Reverse proxy / TLS      │   (TI debe proveer;
-   (HTTPS) ───────────────▶│  Nginx / IIS / Traefik    │    solo termina TLS,
-                           │  · proxy_pass a :8000     │    sin reescrituras)
+   Navegador del usuario   │  nginx (perfil "tls")     │   (en la misma VM;
+   (HTTPS) ───────────────▶│  :443 · proxy_pass a :8000│    solo termina TLS,
+                           │  · CSP y cabeceras        │    sin reescrituras)
                            └────────────┬──────────────┘
                                         │
                            ┌────────────▼──────────────┐
@@ -240,21 +249,43 @@ Implementado en [app/core/security.py](../app/core/security.py):
 - Al excederlos, **bloqueo de 300 s (5 min)** con respuesta **HTTP 429**.
 - Se resetea con un login exitoso.
 
+**IP real del usuario:** la IP se toma de `request.client.host`. uvicorn corre
+con `--proxy-headers` y nginx envía `X-Forwarded-For`, de modo que ese valor es
+el del usuario y no el de nginx —si fuera el de nginx, cinco intentos fallidos
+de cualquiera bloquearían a todos los usuarios a la vez—. La cabecera solo se
+acepta de los emisores listados en `FORWARDED_ALLOW_IPS`; sin ese cerco
+cualquiera podría inventarse un `X-Forwarded-For` distinto en cada intento y no
+sería bloqueado nunca. Por eso el valor `*` es válido **solo** con
+`APP_BIND=127.0.0.1`, que impide llegar a la app sin pasar por nginx.
+
 **Limitaciones:** es **por proceso** y **en memoria** → se reinicia al reiniciar
-el servicio y no se comparte entre workers/nodos (ver 3.3). La IP se toma de
-`request.client.host`, por lo que **detrás de un reverse proxy** hay que
-propagar la IP real (`X-Forwarded-For`) o el conteo será por la IP del proxy.
+el servicio y no se comparte entre workers/nodos (ver 3.3).
 
 ### 6.3 Modelo de autenticación híbrido (LDAP + local)
 
 [app/services/auth_service.py](../app/services/auth_service.py):
 
 - Si LDAP está configurado, autentica contra **Active Directory** (ver Sección 8).
-- Si LDAP no está configurado o falla, cae a **usuarios locales**.
-- ⚠️ Existen **usuarios locales hardcodeados** en el código para desarrollo
-  (`admin/admin`, `marco.agrusa/…`, `demo/demo`), y el usuario **`admin` siempre
-  se autentica localmente**, incluso con LDAP activo. **En producción deben
-  eliminarse o deshabilitarse** (ver Sección 7).
+- Existen **usuarios locales embebidos en el código** para desarrollo sin un
+  Domain Controller a mano (`admin/admin`, `marco.agrusa/…`, `demo/demo`).
+
+**Cuándo se aceptan esos usuarios**, según `AUTH_LOCAL_HABILITADO`:
+
+| Valor | Comportamiento |
+|---|---|
+| *(sin definir)* | Habilitados **solo si LDAP no lo está**. Al configurar LDAP se apagan solos. |
+| `true` | Habilitados aun con LDAP activo, y se usan como respaldo si el AD no responde. Palanca de emergencia, no configuración permanente: el arranque emite un `WARNING`. |
+| `false` | Apagados siempre. **Valor para producción.** |
+
+- Con la vía local apagada, lo que responde LDAP es definitivo: un usuario
+  rechazado por el AD no tiene una segunda puerta de entrada.
+- El **bypass que autenticaba siempre a `admin` localmente**, incluso con LDAP
+  activo, fue eliminado.
+- La comparación de contraseñas locales usa `secrets.compare_digest`, para no
+  filtrar por tiempo de respuesta cuántos caracteres iniciales son correctos.
+- Los errores de conexión con el AD ya **no** se devuelven al cliente: el
+  detalle (que incluye el DN de la cuenta de servicio y la URL del DC) queda
+  solo en el log del servidor.
 
 ### 6.4 Validación de entrada
 
@@ -289,30 +320,38 @@ propagar la IP real (`X-Forwarded-For`) o el conteo será por la IP del proxy.
 
 ## 7. ⚠️ Checklist de endurecimiento para producción
 
-Acciones **obligatorias/recomendadas** antes de exponer el sistema. Ninguna
-está resuelta "de fábrica" en el repositorio:
+Acciones **obligatorias/recomendadas** antes de exponer el sistema.
+
+**Ya resueltas en el repositorio** (verificar que la configuración las active):
+
+- [x] **Terminación TLS/HTTPS**: contenedor `nginx`, perfil `tls`.
+- [x] **CSP y cabeceras de seguridad** (X-Content-Type-Options, X-Frame-Options,
+      Referrer-Policy) en [deploy/nginx/dsms.conf](../deploy/nginx/dsms.conf).
+      `script-src 'self'` es lo que mitiga el XSS sobre el JWT en `localStorage`.
+- [x] **Usuarios locales** desactivables y bypass de `admin` eliminado (6.3).
+- [x] **IP real propagada** al backend para el rate limiter y los logs (6.2).
+- [x] **PostgreSQL sin puerto publicado**: solo alcanzable desde la red interna
+      de Compose.
+- [x] **Imágenes protegidas por token**, no accesibles por UUID (6.6).
+
+**Configuración a aplicar en la VM:**
 
 - [ ] **`JWT_SECRET` fuerte y único** por entorno; nunca el valor por defecto.
-- [ ] **Deshabilitar/eliminar usuarios locales** hardcodeados y el bypass del
-      usuario `admin` (Sección 6.3), o restringirlos a un entorno de soporte
-      controlado.
-- [ ] **Terminación TLS/HTTPS** en el reverse proxy (la app sirve HTTP plano).
+- [ ] **`AUTH_LOCAL_HABILITADO=false`** una vez validado el login contra el AD.
+- [ ] **`APP_BIND=127.0.0.1`** y **`FORWARDED_ALLOW_IPS=*`** con el perfil `tls`.
+- [ ] **`DB_ECHO=false`** (valor por defecto) en el entorno (Sección 5).
+- [ ] **Certificado de la CA interna** para `mksvx64lnn10.molpack.org` y, cuando
+      sea confiable, **habilitar HSTS** (hoy comentado: con un certificado
+      autofirmado, HSTS deja el sistema inaccesible).
 - [ ] **Usar LDAPS (636) o StartTLS** hacia el AD para no enviar credenciales en
       claro (Sección 8).
-- [ ] **`DB_ECHO=false`** (valor por defecto) en el entorno (Sección 5).
-- [ ] **Propagar la IP real** (`X-Forwarded-For`) al backend para que el rate
-      limiter y los logs no vean solo la IP del proxy.
 - [ ] **Gestión de secretos:** `.env` fuera del control de versiones (ya está en
-      `.gitignore`), permisos restringidos (p. ej. `chmod 600`), idealmente un
-      gestor de secretos (Vault, AWS SM, DPAPI/DSC en Windows).
+      `.gitignore`) y con permisos restringidos (`chmod 600`).
 - [ ] **Backups** de PostgreSQL y del directorio `uploads/`.
-- [ ] **CSP y cabeceras de seguridad** (X-Content-Type-Options, X-Frame-Options,
-      HSTS) en el reverse proxy; mitiga el riesgo de XSS sobre el JWT en
-      `localStorage`.
 - [ ] **Rotación/expiración** de la contraseña de la cuenta de servicio LDAP
       gestionada con TI.
-- [ ] Revisar la exposición del **endpoint público de imágenes** (Sección 6.6).
-- [ ] Restringir el acceso a **PostgreSQL** (firewall) solo desde el backend.
+- [ ] **Firewall del host**: publicar 443 (y 80 para la redirección) hacia las
+      tres localidades; nada más.
 
 ---
 
@@ -324,15 +363,23 @@ la librería **`ldap3`**.
 
 ### 8.1 Variables de entorno a configurar (`.env`)
 
+El dominio de Molpack es **`molpack.org`**. La cuenta de servicio es la misma
+que TI suministró para SCADA, con la misma contraseña.
+
 | Variable | Descripción | Ejemplo |
 |---|---|---|
-| `LDAP_SERVER` | URL del Domain Controller | `ldaps://dc01.molpack.net:636` (recom.) o `ldap://dc01.molpack.net` |
-| `LDAP_BASE_DN` | DN base donde buscar usuarios | `DC=molpack,DC=net` |
-| `LDAP_BIND_DN` | DN de la **cuenta de servicio** (bind) | `CN=svc_dsms,OU=Service Accounts,DC=molpack,DC=net` |
+| `LDAP_SERVER` | URL del Domain Controller | `ldaps://dc01.molpack.org:636` (recom.) o `ldap://dc01.molpack.org` |
+| `LDAP_BASE_DN` | DN base donde buscar usuarios | `DC=molpack,DC=org` |
+| `LDAP_BIND_DN` | DN de la **cuenta de servicio** (bind) | `CN=svc_scada,OU=Service Accounts,DC=molpack,DC=org` |
 | `LDAP_BIND_PASSWORD` | Contraseña de la cuenta de servicio | *(secreto)* |
-| `LDAP_GRUPO_AUTORIZADO` | DN del grupo cuyos miembros pueden entrar | `CN=DSMS_Users,OU=Groups,DC=molpack,DC=net` |
+| `LDAP_GRUPO_AUTORIZADO` | DN del grupo cuyos miembros pueden entrar | `CN=DSMS_Users,OU=Groups,DC=molpack,DC=org` |
 | `LDAP_USER_FILTER` | Filtro de búsqueda del usuario | `(sAMAccountName={username})` (por defecto) |
 | `LDAP_USE_SSL` | Usar SSL (LDAPS) | `true` |
+
+> Los valores concretos de `LDAP_SERVER`, `LDAP_BIND_DN` y
+> `LDAP_GRUPO_AUTORIZADO` están **pendientes de confirmación por TI**: el DN
+> exacto de la cuenta de servicio y el grupo de autorización, que debe crearse
+> y poblarse, no se deducen del nombre del dominio.
 
 > **Activación:** LDAP se considera habilitado solo si **`LDAP_SERVER` y
 > `LDAP_BASE_DN` tienen valor** (`LDAP_HABILITADO`). Si están vacíos, el sistema
@@ -393,8 +440,12 @@ Tras configurar el `.env`:
 
 ## 9. Verificación post-despliegue (smoke test)
 
-- [ ] `GET /docs` responde (OpenAPI de FastAPI) a través del reverse proxy.
+- [ ] `https://mksvx64lnn10.molpack.org` sirve el login; `http://` redirige al 443.
+- [ ] `GET /docs` responde (OpenAPI de FastAPI) a través de nginx.
+- [ ] La respuesta trae `Content-Security-Policy`, `X-Frame-Options` y
+      `X-Content-Type-Options` (`curl -kI https://…`).
 - [ ] Login con usuario de AD devuelve `metodo: ldap` + token.
+- [ ] Con `AUTH_LOCAL_HABILITADO=false`, `admin/admin` es rechazado.
 - [ ] Una llamada autenticada (p. ej. `GET /material`) responde 200 con el token
       y 401 sin él.
 - [ ] Crear un material/ficha genera fila en `kitem_auditoria`.

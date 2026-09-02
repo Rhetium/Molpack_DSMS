@@ -55,4 +55,10 @@ EXPOSE 8000
 # --workers 1 es obligatorio: el rate limiter de login vive en memoria del
 # proceso (docs/DESPLIEGUE_Y_SEGURIDAD.md, seccion 6.2). Con varios workers
 # cada uno lleva su propio conteo y la proteccion anti-fuerza-bruta se debilita.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+#
+# --proxy-headers hace que request.client.host sea la IP real del usuario y no
+# la de nginx, que es lo que cuenta el rate limiter. Solo se confia en la
+# cabecera si el emisor esta en FORWARDED_ALLOW_IPS (por defecto 127.0.0.1):
+# sin ese cerco, cualquiera enviaria un X-Forwarded-For inventado por intento
+# fallido y no se bloquearia nunca. El valor lo fija docker-compose.yml.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]

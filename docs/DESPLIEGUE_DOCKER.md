@@ -1,10 +1,26 @@
 # Despliegue con Docker — guía paso a paso
 
-> Despliegue mínimo del sistema en un host Ubuntu. Dos contenedores: base de
-> datos y aplicación. El TLS todavía **no** está resuelto: ver "Pendientes".
+> Despliegue del sistema en un host Ubuntu. Tres contenedores: base de datos,
+> aplicación y —con el perfil `tls`— nginx para terminar HTTPS.
 >
 > Para el detalle de seguridad, LDAP y endurecimiento, ver
 > [DESPLIEGUE_Y_SEGURIDAD.md](DESPLIEGUE_Y_SEGURIDAD.md).
+
+---
+
+## Servidor de destino
+
+| Dato | Valor |
+|---|---|
+| Sistema operativo | Ubuntu 26.04 |
+| IP | `172.21.5.74` |
+| Hostname | `MKSVX64LNN10` |
+| FQDN | `mksvx64lnn10.molpack.org` |
+| Usuario de despliegue | `dsmsadm` |
+| Alcance de red | VPN Molanca Planta, Oficina Caracas, Planta Valencia |
+
+Molpack **no** dispone de reverse proxy corporativo, así que el TLS lo termina
+el propio despliegue con el contenedor `nginx`.
 
 ---
 
@@ -12,8 +28,15 @@
 
 ```
                     ┌──────────────────────────────┐
-  Navegador ───────▶│  app  (contenedor)           │
-  http://host:8000  │  uvicorn :8000               │
+  Navegador ───────▶│  nginx  (perfil "tls")       │
+  https://host      │  :443 · termina TLS          │
+                    │  · cabeceras de seguridad    │
+                    │  · X-Forwarded-For           │
+                    └──────────────┬───────────────┘
+                                   │ red interna de Compose
+                    ┌──────────────▼───────────────┐
+                    │  app  (contenedor)           │
+                    │  uvicorn :8000               │
                     │  · sirve la SPA compilada    │
                     │  · sirve la API en /api      │
                     └────────┬───────────┬─────────┘
@@ -22,8 +45,8 @@
                 al Domain Controller          PostgreSQL 16 + pgvector
 ```
 
-Un solo origen: la SPA y la API se sirven desde el mismo proceso, por eso no
-hace falta nginx ni configurar CORS.
+Un solo origen: la SPA y la API se sirven desde el mismo proceso, por eso nginx
+solo hace `proxy_pass` —sin reescribir rutas— y no hace falta configurar CORS.
 
 ---
 
@@ -56,6 +79,9 @@ Editar `.env` y completar como mínimo:
 | `JWT_SECRET` | Generar uno propio: `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `LDAP_*` | Dejar vacío para probar con usuarios locales; completar cuando TI entregue la cuenta de servicio |
 | `APP_PORT` | Puerto publicado en el host (8000 por defecto) |
+| `APP_BIND` | `127.0.0.1` con el perfil `tls`; `0.0.0.0` solo para pruebas sin TLS |
+| `FORWARDED_ALLOW_IPS` | `*` con el perfil `tls`, para que el rate limiter vea la IP real del usuario |
+| `AUTH_LOCAL_HABILITADO` | `false` en producción: apaga los usuarios embebidos (`admin/admin`, `demo/demo`) |
 
 `DB_HOST` y `DB_PORT` no hay que tocarlos: dentro de Compose los fija el
 propio `docker-compose.yml` apuntando al servicio `db`.
@@ -66,10 +92,30 @@ Permisos del archivo, que contiene secretos:
 chmod 600 .env
 ```
 
-### 2. Levantar
+### 2. Certificado TLS
 
 ```bash
-docker compose up -d --build
+./deploy/generar-certificado.sh csr           # entregar deploy/certs/dsms.csr a TI
+./deploy/generar-certificado.sh autofirmado   # provisional, para no esperar
+```
+
+El camino correcto es el `csr`: TI lo firma con la CA interna del dominio y los
+equipos de Molpack confían en el certificado sin avisos. El autofirmado cifra
+igual pero cada navegador mostrará una advertencia hasta que TI distribuya la
+CA por GPO.
+
+Mientras el certificado sea autofirmado, **HSTS debe quedar comentado** en
+[deploy/nginx/dsms.conf](../deploy/nginx/dsms.conf): una vez que el navegador
+registra HSTS para este host deja de ofrecer el "continuar de todos modos" ante
+un certificado no confiable, y el sistema queda inaccesible.
+
+Los certificados no se versionan y la clave privada no sale de la VM.
+
+### 3. Levantar
+
+```bash
+docker compose --profile tls up -d --build      # con HTTPS
+docker compose up -d --build                    # sin nginx, HTTP plano (pruebas)
 ```
 
 El primer build tarda bastante (compila la SPA, instala PyTorch y descarga el
@@ -80,15 +126,17 @@ directorio de inicialización de PostgreSQL y se ejecuta la primera vez que el
 volumen está vacío — incluye las extensiones `pgcrypto` y `vector` y el índice
 HNSW.
 
-### 3. Verificar
+### 4. Verificar
 
 ```bash
-docker compose ps          # ambos servicios "running", db "healthy"
-docker compose logs -f app # sin errores de conexión ni de modelo
+docker compose --profile tls ps   # los tres "running", db "healthy"
+docker compose logs -f app        # sin errores de conexión ni de modelo
+docker compose logs nginx         # sin errores de certificado
 ```
 
-En el navegador, `http://<host>:8000` debe mostrar el login, y
-`http://<host>:8000/docs` el OpenAPI de FastAPI.
+En el navegador, `https://mksvx64lnn10.molpack.org` debe mostrar el login, y
+`https://mksvx64lnn10.molpack.org/docs` el OpenAPI de FastAPI. `http://` debe
+redirigir al 443.
 
 Smoke test completo (login, auditoría, búsqueda semántica, exportación,
 rate limiting): sección 9 de [DESPLIEGUE_Y_SEGURIDAD.md](DESPLIEGUE_Y_SEGURIDAD.md).
@@ -98,11 +146,15 @@ rate limiting): sección 9 de [DESPLIEGUE_Y_SEGURIDAD.md](DESPLIEGUE_Y_SEGURIDAD
 ## Operación diaria
 
 ```bash
-docker compose logs -f app        # ver logs
-docker compose restart app        # reiniciar solo la app
-docker compose down               # detener (los datos sobreviven)
-docker compose up -d --build      # desplegar una versión nueva
+docker compose logs -f app                    # ver logs
+docker compose restart app                    # reiniciar solo la app
+docker compose --profile tls restart nginx    # recargar tras cambiar el certificado
+docker compose --profile tls down             # detener (los datos sobreviven)
+docker compose --profile tls up -d --build    # desplegar una versión nueva
 ```
+
+El `--profile tls` hace falta en cada comando que deba alcanzar a nginx; sin él,
+`down` deja el contenedor corriendo y `ps` no lo lista.
 
 **Respaldo de la base:**
 
@@ -127,14 +179,22 @@ directorio `uploads/`, que tiene las imágenes subidas por los usuarios.
 
 ## Pendientes antes de considerarlo producción
 
-- [ ] **TLS.** Hoy el tráfico va en HTTP plano, incluido el JWT. Resolver con
-      el reverse proxy corporativo de TI o montando nginx + certificado. Cuando
-      exista, cambiar el mapeo de puertos a `"127.0.0.1:${APP_PORT}:8000"` para
-      que la app deje de ser accesible directamente.
-- [ ] **Usuarios locales hardcodeados** (`admin/admin`, `demo/demo`) y el bypass
-      del usuario `admin`: deshabilitar (sección 6.3 del documento de seguridad).
-- [ ] **`X-Forwarded-For`** propagado al backend cuando haya proxy delante, o el
-      rate limiter contará todos los intentos contra la IP del proxy.
-- [ ] **LDAPS (636)** en lugar de LDAP plano hacia el Domain Controller.
+Resueltos en el repositorio:
+
+- [x] **TLS.** Contenedor `nginx` con perfil `tls`, cabeceras de seguridad y CSP.
+      Falta el certificado firmado por la CA interna y descomentar HSTS.
+- [x] **Usuarios locales hardcodeados** y el bypass del usuario `admin`: se
+      apagan solos al configurar LDAP, o con `AUTH_LOCAL_HABILITADO=false`.
+- [x] **`X-Forwarded-For`**: uvicorn corre con `--proxy-headers` y nginx propaga
+      la IP real, acotado por `FORWARDED_ALLOW_IPS`.
+
+Pendientes:
+
+- [ ] **Certificado de la CA interna** de Molpack para `mksvx64lnn10.molpack.org`
+      y, una vez confiable, **habilitar HSTS**.
+- [ ] **LDAPS (636)** en lugar de LDAP plano hacia el Domain Controller, con el
+      certificado del DC confiable en el host.
 - [ ] El contenedor corre como `root`. Migrar a un usuario sin privilegios.
 - [ ] Backups automatizados (hoy el `pg_dump` es manual).
+- [ ] El rate limiter sigue en memoria del proceso: se reinicia con el
+      contenedor. Mover a Redis si se necesita persistencia entre despliegues.

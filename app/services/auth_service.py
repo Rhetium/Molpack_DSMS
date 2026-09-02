@@ -1,5 +1,6 @@
 import os
 import logging
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
@@ -23,6 +24,30 @@ LDAP_USE_SSL = os.getenv("LDAP_USE_SSL", "false").lower() == "true"
 
 
 LDAP_HABILITADO = bool(LDAP_SERVER and LDAP_BASE_DN)
+
+# Los usuarios locales de abajo son credenciales de desarrollo embebidas en el
+# codigo: sirven para trabajar sin un Domain Controller a mano, no para
+# produccion. Por eso se apagan solos en cuanto LDAP queda configurado.
+#
+#   AUTH_LOCAL_HABILITADO sin definir  -> habilitados solo si LDAP no lo esta
+#   AUTH_LOCAL_HABILITADO=true         -> habilitados igual (soporte, con LDAP caido)
+#   AUTH_LOCAL_HABILITADO=false        -> apagados siempre
+#
+# Dejarlo en "true" con LDAP activo reabre el acceso con admin/admin: es una
+# palanca de emergencia, no un valor de configuracion permanente.
+_local_env = os.getenv("AUTH_LOCAL_HABILITADO", "").strip().lower()
+if _local_env in ("true", "1", "si", "yes"):
+    AUTH_LOCAL_HABILITADO = True
+elif _local_env in ("false", "0", "no"):
+    AUTH_LOCAL_HABILITADO = False
+else:
+    AUTH_LOCAL_HABILITADO = not LDAP_HABILITADO
+
+if AUTH_LOCAL_HABILITADO and LDAP_HABILITADO:
+    logger.warning(
+        "AUTH_LOCAL_HABILITADO=true con LDAP activo: las credenciales locales "
+        "embebidas siguen aceptandose. Desactivar en cuanto se valide el AD."
+    )
 
 USUARIOS_LOCALES = {
     "marco.agrusa": {
@@ -79,24 +104,29 @@ class AuthService:
         if not usuario or not password:
             return LoginResponse(exito=False, mensaje="Usuario y contraseña son obligatorios.")
 
-        # Siempre permitir admin local
-        if usuario == "admin":
-            return self._autenticar_local(usuario, password)
-
-        # Intentar LDAP primero si está configurado
         if LDAP_HABILITADO:
             resultado = await self._autenticar_ldap(usuario, password)
             if resultado.exito:
                 return resultado
-            # Si LDAP falla, intentar local como fallback
-            logger.info(f"LDAP falló para {usuario}, intentando autenticación local.")
 
-        # Autenticación local
+            # Sin usuarios locales habilitados, lo que diga LDAP es la palabra
+            # final: no hay segunda via de entrada que lo contradiga.
+            if not AUTH_LOCAL_HABILITADO:
+                return resultado
+
+            logger.info("LDAP falló para %s, intentando autenticación local.", usuario)
+
         return self._autenticar_local(usuario, password)
 
     def _autenticar_local(self, usuario: str, password: str) -> LoginResponse:
+        if not AUTH_LOCAL_HABILITADO:
+            logger.warning("Intento de login local para %s con la vía local desactivada.", usuario)
+            return LoginResponse(exito=False, mensaje="Credenciales inválidas.")
+
         user_data = USUARIOS_LOCALES.get(usuario)
-        if not user_data or user_data["password"] != password:
+        # compare_digest y no "!=" para no filtrar por tiempo de respuesta
+        # cuantos caracteres iniciales de la contraseña son correctos.
+        if not user_data or not secrets.compare_digest(user_data["password"], password):
             return LoginResponse(
                 exito=False,
                 mensaje="Credenciales inválidas.",
@@ -203,8 +233,10 @@ class AuthService:
             )
 
         except Exception as e:
-            logger.error(f"Error LDAP: {e}")
+            # El detalle va al log, no a la respuesta: los errores de ldap3
+            # incluyen el DN de la cuenta de servicio y la URL del DC.
+            logger.error("Error LDAP: %s", e)
             return LoginResponse(
                 exito=False,
-                mensaje=f"Error de conexión con Active Directory: {str(e)}",
+                mensaje="No se pudo contactar con Active Directory. Contacta al administrador.",
             )

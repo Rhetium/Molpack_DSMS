@@ -1,7 +1,12 @@
 # =============================================================
-# Molpack DSMS — despliegue con dos contenedores: base y aplicacion.
+# Molpack DSMS — despliegue en contenedores.
 #
-#   docker compose up -d --build
+#   Sin TLS (solo pruebas):  docker compose up -d --build
+#   Con TLS (produccion):    docker compose --profile tls up -d --build
+#
+# El perfil "tls" agrega nginx delante y termina HTTPS en el 443. En ese modo
+# hay que poner APP_BIND=127.0.0.1 en .env para que el 8000 en claro deje de
+# ser alcanzable desde la red y solo quede para depurar desde el propio host.
 #
 # Las variables se leen del archivo .env (ver .env.example).
 # =============================================================
@@ -41,16 +46,35 @@ services:
       DB_PORT: "5432"
       # Nombre completo del modelo que quedo cacheado en la imagen.
       EMBEDDING_MODEL_NAME: sentence-transformers/all-MiniLM-L6-v2
+      # De quien acepta uvicorn un X-Forwarded-For. Con el perfil tls, nginx
+      # llega desde la red interna de Compose (IP dinamica), de ahi el "*":
+      # es seguro porque con APP_BIND=127.0.0.1 nadie mas puede hablarle.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
-      # Mientras no haya TLS, el trafico va en HTTP plano: exponer solo en
-      # la red interna de Molpack. Al montar el reverse proxy, cambiar por
-      # "127.0.0.1:${APP_PORT:-8000}:8000".
-      - "${APP_PORT:-8000}:8000"
+      # APP_BIND=127.0.0.1 con el perfil tls (solo loopback, nginx publica el
+      # 443); 0.0.0.0 sin el, que deja la app en HTTP plano sobre la LAN.
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8000}:8000"
     volumes:
       # Imagenes subidas por los usuarios: dato de negocio, incluir en backups.
       - ./uploads:/app/uploads
       # Modelos Isolation Forest entrenados (regenerables desde la app).
       - mlmodels:/app/app/ml_models
+
+  # Solo se levanta con --profile tls. Termina HTTPS y agrega las cabeceras de
+  # seguridad; no reescribe rutas, porque la SPA y la API comparten origen.
+  nginx:
+    profiles: ["tls"]
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/dsms.conf:/etc/nginx/conf.d/default.conf:ro
+      # Esperados dentro: dsms.crt y dsms.key (ver deploy/certs/README.md).
+      - ./deploy/certs:/etc/nginx/certs:ro
 
 volumes:
   pgdata:
