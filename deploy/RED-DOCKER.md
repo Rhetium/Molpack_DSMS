@@ -26,12 +26,24 @@ Todo fuera del espacio `172.16-172.31` y lejos de `192.168.22.0/24`:
 | Uso | Subred |
 |---|---|
 | Red de este proyecto (fija en `docker-compose.yml`) | `192.168.240.0/24` |
-| `docker0`, bridge por defecto (`bip`) | `192.168.241.0/24` |
-| Pool para redes que Docker cree por su cuenta | `192.168.244.0/21`, en /24 |
+| `docker0`, bridge por defecto (`bip`) | `192.168.250.0/24` |
+| Pool para redes que Docker cree por su cuenta | `192.168.244.0/22`, en /24 |
 
-Confirmar estos valores con TI contra el plan de direccionamiento de Molpack
-antes de aplicarlos: aca solo se conocen las cuatro redes vistas en el tunel,
-no el mapa completo.
+El valor de `bip` es el que eligio TI. Los otros dos se verificaron sin
+solapamiento entre si ni contra las redes conocidas de Molpack (172.17, 172.20,
+172.21 -- incluida 172.21.5.0/24, la del propio servidor --, 192.168.22 y el
+pool de VPN 10.254.17.0/24).
+
+Cuidado con la alineacion al elegir prefijos: `192.168.244.0/21` NO es valido
+(el /21 exige base multiplo de 8) y Linux lo normaliza a `192.168.240.0/21`,
+que se comeria la red del proyecto. Por eso el pool es /22.
+
+## Por que no alcanza con "bip"
+
+`bip` define unicamente el bridge por defecto (`docker0`). Las redes que crea
+Compose salen de `default-address-pools`, que si no se declara mantiene su
+valor de fabrica: 172.17.0.0/16 a 172.31.0.0/16. Un daemon.json con `bip` solo
+deja el problema intacto para cualquier despliegue.
 
 ## Aplicar (requiere root)
 
