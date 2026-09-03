@@ -79,3 +79,26 @@ services:
 volumes:
   pgdata:
   mlmodels:
+
+# =============================================================
+# Red del proyecto con subred FIJA.
+#
+# Librado a su criterio, Docker toma direcciones del rango
+# 172.17.0.0/16 - 172.31.0.0/16. Ese pool CONTIENE las redes
+# corporativas de Molpack (172.17, 172.20 y 172.21), asi que una
+# red de contenedores puede secuestrar el trafico que debia salir
+# por la LAN y dejar el servidor incomunicado: fue lo que corto el
+# SSH en el primer intento de despliegue.
+#
+# De ahi que la subred se fije explicitamente fuera de ese espacio.
+# OJO: 192.168.22.0/24 tambien es corporativa. No usarla.
+#
+# Esto solo cubre la red que crea este compose. El bridge por
+# defecto (docker0, 172.17.0.1/16) se corrige en el demonio:
+# ver deploy/daemon.json.ejemplo (requiere root).
+# =============================================================
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 192.168.240.0/24
