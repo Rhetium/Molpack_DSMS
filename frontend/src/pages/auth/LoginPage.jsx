@@ -177,25 +177,6 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* Credenciales demo */}
-          <div className="mt-8 p-4 bg-white border border-gray-200 rounded-lg">
-            <p className="text-xs font-medium text-gray-500 mb-2">Credenciales de prueba</p>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Admin:</span>
-                <code className="text-xs bg-gray-50 px-2 py-0.5 rounded text-gray-700">marco.agrusa / molpack2025</code>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Admin:</span>
-                <code className="text-xs bg-gray-50 px-2 py-0.5 rounded text-gray-700">admin / admin</code>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Demo:</span>
-                <code className="text-xs bg-gray-50 px-2 py-0.5 rounded text-gray-700">demo / demo</code>
-              </div>
-            </div>
-          </div>
-
           {/* Footer */}
           <p className="text-center text-xs text-gray-400 mt-8">
             Molpack DSMS v1.0
