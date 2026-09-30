@@ -1,0 +1,24 @@
+# Permite a la cuenta de despliegue administrar UNICAMENTE el servicio de
+# Docker. No es sudo general: no da shell de root, no permite instalar
+# paquetes ni editar configuracion del sistema.
+#
+# Sin esto, dsmsadm no puede arrancar ni reiniciar el demonio que necesita
+# para trabajar, y cada despliegue depende de que un administrador este
+# disponible.
+#
+# Instalar como root:
+#   sudo cp deploy/sudoers-dsmsadm.ejemplo /etc/sudoers.d/dsmsadm
+#   sudo chmod 440 /etc/sudoers.d/dsmsadm
+#   sudo visudo -c            # verifica la sintaxis antes de confiar en el
+#
+# El chmod 440 y la verificacion con visudo no son opcionales: un archivo
+# con permisos incorrectos o sintaxis invalida puede dejar sudo inutilizable
+# para todo el sistema.
+
+dsmsadm ALL=(root) NOPASSWD: /usr/bin/systemctl start docker.service, \
+                             /usr/bin/systemctl stop docker.service, \
+                             /usr/bin/systemctl restart docker.service, \
+                             /usr/bin/systemctl start docker.socket, \
+                             /usr/bin/systemctl stop docker.socket, \
+                             /usr/bin/systemctl status docker.service, \
+                             /usr/bin/systemctl is-active docker.service

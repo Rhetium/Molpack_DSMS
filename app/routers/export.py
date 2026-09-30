@@ -17,12 +17,13 @@ router = APIRouter(
     dependencies=[Depends(get_usuario_actual)],
 )
 
-# Ruta donde el usuario coloca su plantilla PDF
-PLANTILLA_PATH = os.path.join(
+# Rutas donde el usuario coloca sus plantillas PDF (una por tipo de ficha)
+TEMPLATES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "templates",
-    "plantilla_ficha.pdf",
 )
+PLANTILLA_PATH = os.path.join(TEMPLATES_DIR, "plantilla_ficha.pdf")
+PLANTILLA_COMERCIAL_PATH = os.path.join(TEMPLATES_DIR, "plantilla_ficha_comercial.pdf")
 
 
 def get_export_service(db_session: AsyncSession = Depends(get_session)):
@@ -44,6 +45,29 @@ async def exportar_ficha_pdf(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f"attachment; filename=ficha_{id_ficha}.pdf"
+        },
+    )
+
+
+@router.get("/ficha/{id_ficha}/comercial/pdf")
+async def exportar_ficha_comercial_pdf(
+    id_ficha: UUID,
+    service: ExportService = Depends(get_export_service),
+):
+
+    plantilla = (
+        PLANTILLA_COMERCIAL_PATH if os.path.exists(PLANTILLA_COMERCIAL_PATH) else None
+    )
+
+    pdf_bytes = await service.exportar_ficha_comercial_pdf(
+        id_ficha, plantilla_path=plantilla
+    )
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=ficha_comercial_{id_ficha}.pdf"
         },
     )
 

@@ -1,0 +1,363 @@
+Prueba de integracion OE8 — 2026-09-25 15:29:43
+Entorno: PostgreSQL local 5432 / base 'molpack_dsms' / app FastAPI via ASGI
+
+==============================================================================
+ESCENARIO A — Bloqueo y desbloqueo de transicion de estado
+==============================================================================
+
+--- PASO 1: Crear material comercial de prueba (categoria Separador) ---
+  HTTP 201 POST /api/material
+  {
+    "id_material_corporativo": "f670ba32-6dc4-47aa-b3c0-140a5c65bc17",
+    "nombre_corporativo": "Separador Prueba OE8",
+    "categoria": "Separador"
+  }
+
+  Referencia estadistica: fichas existentes de categoria 'Separador'
+  n=6  valores=[60.0, 60.0, 67.0, 60.0, 64.0, 64.0]
+  media=62.50 g   desviacion=2.69 g
+  rango normal (z<2): [57.1, 67.9] g
+  peso atipico a inyectar: 220.0 g  ->  z-score esperado = 58.49
+
+--- PASO 2: Crear ficha tecnica en estado Borrador (peso normal) ---
+  HTTP 201 POST /api/ficha
+  {
+    "id_ficha": "67b441bb-20c1-460d-955b-108e2e12f0a8",
+    "codigo_ficha_local": "FT-OE8-TEST-001-VE-BOR-V1.0",
+    "estado_ficha": "Borrador"
+  }
+
+  Anomalias tras la creacion: 0 (la creacion no ejecuta el motor: asigna embedding y devuelve _anomalias=[])
+
+--- PASO 3: Actualizar la ficha con el valor atipico (dispara el motor) ---
+  PATCH caracteristicas.peso_valor: 62.0 -> 220.0 g
+  HTTP 200 PATCH /api/ficha/67b441bb-20c1-460d-955b-108e2e12f0a8
+  Respuesta del endpoint: 5 anomalia(s) en el campo 'anomalias'
+    - [advertencia] valor_atipico / caracteristicas.dimensiones_largo_valor
+      Largo: el valor 300.0 difiere del valor constante 298.0 en fichas similares.
+    - [advertencia] valor_atipico / caracteristicas.dimensiones_alto_valor
+      Alto: el valor 45.0 difiere del valor constante 50.0 en fichas similares.
+    - [critica] valor_atipico / caracteristicas.peso_valor
+      Peso: el valor 220.0 g está fuera del rango típico (57.11 - 67.89 g) para materiales similares.
+    - [critica] perfil_numerico_cruzado / categoria
+      Los valores numéricos de esta ficha se parecen más a la categoría 'Bandeja' que a 'Separador'. ¿La clasificación es correcta?
+    - [advertencia] rango_categoria / caracteristicas.peso_valor
+      Peso (220.0 g) está fuera del rango típico para la categoría 'Separador' (35 – 110 g). ¿El material está bien clasificado?
+
+--- PASO 4: Verificar anomalia persistida en estado 'pendiente' ---
+  SQL> select * from anomalia_registro where kitem_id = '67b441bb-20c1-460d-955b-108e2e12f0a8';  (esperado: estado=pendiente)
+  (5 fila(s))
+    id              : 4e4aad8d-23b6-422c-b81f-d3f78183f462
+    tipo_anomalia   : valor_atipico
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.dimensiones_largo_valor
+    valor_detectado : 300.0
+    valor_esperado  : 298.0 (todas las fichas tienen este valor)
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.022016+00:00
+    detalles        : {"std": 0, "media": 298.0, "n_muestras": 7, "valores_referencia": [298.0, 298.0, 298.0, 298.0, 298.0, 298.0, 298.0]}
+
+    id              : d8cf01cd-22ec-4123-abc3-0b1227e4b2b6
+    tipo_anomalia   : valor_atipico
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.dimensiones_alto_valor
+    valor_detectado : 45.0
+    valor_esperado  : 50.0 (todas las fichas tienen este valor)
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.026014+00:00
+    detalles        : {"std": 0, "media": 50.0, "n_muestras": 6, "valores_referencia": [50.0, 50.0, 50.0, 50.0, 50.0, 50.0]}
+
+    id              : 48281924-9f92-4ef4-bfdf-c4f4743d9271
+    tipo_anomalia   : valor_atipico
+    severidad       : critica
+    campo_afectado  : caracteristicas.peso_valor
+    valor_detectado : 220.0 g
+    valor_esperado  : 57.11 - 67.89 g
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.026014+00:00
+    detalles        : {"std": 2.6926, "media": 62.5, "z_score": 58.494, "rango_max": 67.89, "rango_min": 57.11, "n_muestras": 6}
+
+    id              : 5ec71367-e926-4941-a324-636b8b94fd1b
+    tipo_anomalia   : perfil_numerico_cruzado
+    severidad       : critica
+    campo_afectado  : categoria
+    valor_detectado : Separador
+    valor_esperado  : Bandeja
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.027014+00:00
+    detalles        : {"ratio": 0.1848, "campos_comparados": ["dimensiones_largo_valor", "dimensiones_ancho_valor", "dimensiones_alto_valor", "peso_valor"], "categoria_sugerida": "Bandeja", "distancia_sugerida": 5.4069, "ranking_categorias": {"Bandeja": 5.4069, "Estuche": 80.5066, "Separador": 29.2565, "Porta vasos": 98.4409}, "categoria_declarada": "Separador", "distancia_declarada": 29.2565}
+
+    id              : 875eadb3-d808-4998-a261-5d4452965843
+    tipo_anomalia   : rango_categoria
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.peso_valor
+    valor_detectado : 220.0 g
+    valor_esperado  : 35 – 110 g
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.027014+00:00
+    detalles        : {"campo": "peso_valor", "valor": 220.0, "unidad": "g", "categoria": "Separador", "rango_max": 110, "rango_min": 35}
+
+
+--- PASO 5: Intentar transicion Borrador -> Preliminar con anomalia pendiente ---
+  HTTP 400  POST /api/ficha/{id}/aprobar-inicial
+  Cuerpo: {"detail": "No se puede cambiar el estado: hay 5 anomalía(s) pendiente(s) por resolver. Resuélvelas antes de continuar."}
+  Estado de la ficha tras el intento: Borrador  (sin cambios)
+
+--- PASO 6: Auditoria inmediatamente despues del intento bloqueado ---
+  SQL> select * from kitem_auditoria where kitem_id = '67b441bb-20c1-460d-955b-108e2e12f0a8' order by fecha;
+  (4 fila(s))
+  fecha                      accion             anterior    -> nuevo       usuario
+  2026-09-25 19:30:58.923958+00:00 CREACION           -           -> Borrador    admin
+  2026-09-25 19:30:58.930966+00:00 RELACION_CREADA    -           -> -           admin
+  2026-09-25 19:30:58.946481+00:00 EMBEDDING_GENERADO -           -> -           admin
+  2026-09-25 19:30:58.962995+00:00 MODIFICACION       -           -> -           admin
+
+--- PASO 7: Resolver las anomalias pendientes desde el panel ---
+  HTTP 200 PATCH /api/anomalias/4e4aad8d-23b6-422c-b81f-d3f78183f462/resolver
+  {
+    "id": "4e4aad8d-23b6-422c-b81f-d3f78183f462",
+    "tipo_anomalia": "valor_atipico",
+    "estado": "descartada",
+    "resuelto_por": "admin",
+    "nota_resolucion": "Valor verificado con planta: corresponde a un separador reforzado de alto gramaje."
+  }
+  HTTP 200 PATCH /api/anomalias/d8cf01cd-22ec-4123-abc3-0b1227e4b2b6/resolver
+  {
+    "id": "d8cf01cd-22ec-4123-abc3-0b1227e4b2b6",
+    "tipo_anomalia": "valor_atipico",
+    "estado": "descartada",
+    "resuelto_por": "admin",
+    "nota_resolucion": "Valor verificado con planta: corresponde a un separador reforzado de alto gramaje."
+  }
+  HTTP 200 PATCH /api/anomalias/48281924-9f92-4ef4-bfdf-c4f4743d9271/resolver
+  {
+    "id": "48281924-9f92-4ef4-bfdf-c4f4743d9271",
+    "tipo_anomalia": "valor_atipico",
+    "estado": "descartada",
+    "resuelto_por": "admin",
+    "nota_resolucion": "Valor verificado con planta: corresponde a un separador reforzado de alto gramaje."
+  }
+  HTTP 200 PATCH /api/anomalias/5ec71367-e926-4941-a324-636b8b94fd1b/resolver
+  {
+    "id": "5ec71367-e926-4941-a324-636b8b94fd1b",
+    "tipo_anomalia": "perfil_numerico_cruzado",
+    "estado": "descartada",
+    "resuelto_por": "admin",
+    "nota_resolucion": "Valor verificado con planta: corresponde a un separador reforzado de alto gramaje."
+  }
+  HTTP 200 PATCH /api/anomalias/875eadb3-d808-4998-a261-5d4452965843/resolver
+  {
+    "id": "875eadb3-d808-4998-a261-5d4452965843",
+    "tipo_anomalia": "rango_categoria",
+    "estado": "descartada",
+    "resuelto_por": "admin",
+    "nota_resolucion": "Valor verificado con planta: corresponde a un separador reforzado de alto gramaje."
+  }
+
+--- PASO 8: Verificar el cambio de estado en anomalia_registro ---
+  SQL> select * from anomalia_registro where kitem_id = '67b441bb-20c1-460d-955b-108e2e12f0a8';  (esperado: estado=descartada)
+  (5 fila(s))
+    id              : 4e4aad8d-23b6-422c-b81f-d3f78183f462
+    tipo_anomalia   : valor_atipico
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.dimensiones_largo_valor
+    valor_detectado : 300.0
+    valor_esperado  : 298.0 (todas las fichas tienen este valor)
+    estado          : descartada
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.022016+00:00
+    resuelto_por    : admin
+    fecha_resolucion: 2026-09-25 19:30:59.043015+00:00
+    nota_resolucion : Valor verificado con planta: corresponde a un separador reforzado de alto gramaje.
+    detalles        : {"std": 0, "media": 298.0, "n_muestras": 7, "valores_referencia": [298.0, 298.0, 298.0, 298.0, 298.0, 298.0, 298.0]}
+
+    id              : d8cf01cd-22ec-4123-abc3-0b1227e4b2b6
+    tipo_anomalia   : valor_atipico
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.dimensiones_alto_valor
+    valor_detectado : 45.0
+    valor_esperado  : 50.0 (todas las fichas tienen este valor)
+    estado          : descartada
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.026014+00:00
+    resuelto_por    : admin
+    fecha_resolucion: 2026-09-25 19:30:59.048018+00:00
+    nota_resolucion : Valor verificado con planta: corresponde a un separador reforzado de alto gramaje.
+    detalles        : {"std": 0, "media": 50.0, "n_muestras": 6, "valores_referencia": [50.0, 50.0, 50.0, 50.0, 50.0, 50.0]}
+
+    id              : 48281924-9f92-4ef4-bfdf-c4f4743d9271
+    tipo_anomalia   : valor_atipico
+    severidad       : critica
+    campo_afectado  : caracteristicas.peso_valor
+    valor_detectado : 220.0 g
+    valor_esperado  : 57.11 - 67.89 g
+    estado          : descartada
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.026014+00:00
+    resuelto_por    : admin
+    fecha_resolucion: 2026-09-25 19:30:59.051018+00:00
+    nota_resolucion : Valor verificado con planta: corresponde a un separador reforzado de alto gramaje.
+    detalles        : {"std": 2.6926, "media": 62.5, "z_score": 58.494, "rango_max": 67.89, "rango_min": 57.11, "n_muestras": 6}
+
+    id              : 5ec71367-e926-4941-a324-636b8b94fd1b
+    tipo_anomalia   : perfil_numerico_cruzado
+    severidad       : critica
+    campo_afectado  : categoria
+    valor_detectado : Separador
+    valor_esperado  : Bandeja
+    estado          : descartada
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.027014+00:00
+    resuelto_por    : admin
+    fecha_resolucion: 2026-09-25 19:30:59.054019+00:00
+    nota_resolucion : Valor verificado con planta: corresponde a un separador reforzado de alto gramaje.
+    detalles        : {"ratio": 0.1848, "campos_comparados": ["dimensiones_largo_valor", "dimensiones_ancho_valor", "dimensiones_alto_valor", "peso_valor"], "categoria_sugerida": "Bandeja", "distancia_sugerida": 5.4069, "ranking_categorias": {"Bandeja": 5.4069, "Estuche": 80.5066, "Separador": 29.2565, "Porta vasos": 98.4409}, "categoria_declarada": "Separador", "distancia_declarada": 29.2565}
+
+    id              : 875eadb3-d808-4998-a261-5d4452965843
+    tipo_anomalia   : rango_categoria
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.peso_valor
+    valor_detectado : 220.0 g
+    valor_esperado  : 35 – 110 g
+    estado          : descartada
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.027014+00:00
+    resuelto_por    : admin
+    fecha_resolucion: 2026-09-25 19:30:59.057017+00:00
+    nota_resolucion : Valor verificado con planta: corresponde a un separador reforzado de alto gramaje.
+    detalles        : {"campo": "peso_valor", "valor": 220.0, "unidad": "g", "categoria": "Separador", "rango_max": 110, "rango_min": 35}
+
+
+--- PASO 9: Reintentar la transicion Borrador -> Preliminar ---
+  HTTP 200  POST /api/ficha/{id}/aprobar-inicial
+  HTTP 200 POST /api/ficha/67b441bb-20c1-460d-955b-108e2e12f0a8/aprobar-inicial
+  {
+    "id_ficha": "67b441bb-20c1-460d-955b-108e2e12f0a8",
+    "codigo_ficha_local": "FT-OE8-TEST-001-VE-PRE-V1.0",
+    "estado_ficha": "Preliminar"
+  }
+  Estado de la ficha tras el reintento: Preliminar
+
+--- PASO 10: Auditoria completa del K-Item (kitem_auditoria) ---
+  SQL> select * from kitem_auditoria where kitem_id = '67b441bb-20c1-460d-955b-108e2e12f0a8' order by fecha;
+  (7 fila(s))
+  fecha                      accion             anterior    -> nuevo       usuario
+  2026-09-25 19:30:58.923958+00:00 CREACION           -           -> Borrador    admin
+  2026-09-25 19:30:58.930966+00:00 RELACION_CREADA    -           -> -           admin
+  2026-09-25 19:30:58.946481+00:00 EMBEDDING_GENERADO -           -> -           admin
+  2026-09-25 19:30:58.962995+00:00 MODIFICACION       -           -> -           admin
+  2026-09-25 19:30:59.066523+00:00 CAMBIO_ESTADO      Borrador    -> Preliminar  admin
+  2026-09-25 19:30:59.067522+00:00 CAMBIO_ESTADO      Borrador    -> Preliminar  admin
+  2026-09-25 19:30:59.091109+00:00 EMBEDDING_GENERADO -           -> -           admin
+
+  COMPROBACION sobre el registro del intento bloqueado:
+    filas de auditoria antes del reintento : 4
+    filas de auditoria despues del reintento: 7
+    eventos CAMBIO_ESTADO registrados        : 2
+
+==============================================================================
+ESCENARIO B — El Detector 3 opera sobre la columna embedding
+==============================================================================
+
+--- PASO 1: Crear un segundo material casi identico (otro material corporativo) ---
+  HTTP 201 POST /api/material
+  {
+    "id_material_corporativo": "d265f348-db1e-4216-ae86-ae7b27764b28",
+    "nombre_corporativo": "Separador Prueba OE8 BIS"
+  }
+
+--- PASO 2: Crear una ficha gemela (mismas dimensiones, material distinto) ---
+  HTTP 201 POST /api/ficha
+  {
+    "id_ficha": "df0c6e27-ee40-470e-9b2e-63ef1ec09f04",
+    "codigo_ficha_local": "FT-OE8-TEST-002-VE-BOR-V1.0",
+    "estado_ficha": "Borrador"
+  }
+
+--- PASO 3: Verificar que ambos K-Items tienen embedding en la columna vector ---
+  ficha A: embedding=SI  dimensiones=384  nombre='Ficha: Separador Prueba OE8 - OE8-TEST-001 (VE)'
+  ficha B: embedding=SI  dimensiones=384  nombre='Ficha Tecnica - OE8-TEST-002 (VE)'
+
+  Similitud coseno entre ambos, calculada en PostgreSQL con pgvector:
+  SQL> select 1 - (a.embedding <=> b.embedding) from kitem a, kitem b ...
+  similitud = 0.735177   (umbral Detector 3 para fichas: 0.95)
+
+--- PASO 4: Disparar el motor sobre la ficha B y capturar el SQL emitido ---
+  HTTP 200 PATCH /api/ficha/df0c6e27-ee40-470e-9b2e-63ef1ec09f04
+  {
+    "id_ficha": "df0c6e27-ee40-470e-9b2e-63ef1ec09f04",
+    "estado_ficha": "Borrador"
+  }
+
+  Consultas SQL emitidas durante el analisis: 38
+  De ellas, con operador de distancia coseno de pgvector (<=>): 2
+
+  SELECT kitem.id, kitem.ktype, kitem.nombre, kitem.descripcion, kitem.estado, kitem.metadata_extra, kitem.embedding, kitem.usuario_creador, kitem.usuario_ultima_actualizacion, kitem.fecha_creacion, kitem.fecha_actualizacion, $1::INTEGER - (kitem.embedding <=> $2) AS similitud FROM kitem WHERE kitem.embedding IS NOT NULL AND kitem.id != $3::UUID AND kitem.ktype = $4::VARCHAR ORDER BY (kitem.embedding <=> $2) ASC LIMIT $5::INTEGER
+
+  SELECT kitem.id, kitem.ktype, kitem.nombre, kitem.descripcion, kitem.estado, kitem.metadata_extra, kitem.embedding, kitem.usuario_creador, kitem.usuario_ultima_actualizacion, kitem.fecha_creacion, kitem.fecha_actualizacion, $1::INTEGER - (kitem.embedding <=> $2) AS similitud FROM kitem WHERE kitem.embedding IS NOT NULL AND kitem.ktype = $3::VARCHAR ORDER BY (kitem.embedding <=> $2) ASC LIMIT $4::INTEGER
+
+--- PASO 5: Anomalia de duplicado semantico persistida ---
+  SQL> select * from anomalia_registro where kitem_id = 'df0c6e27-ee40-470e-9b2e-63ef1ec09f04';  (se busca tipo_anomalia='duplicado_semantico')
+  (4 fila(s))
+    id              : 2710bc28-ef51-4270-8b0e-ba946785f78a
+    tipo_anomalia   : valor_atipico
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.dimensiones_largo_valor
+    valor_detectado : 300.0 mm
+    valor_esperado  : 296.93 - 299.57 mm
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.298692+00:00
+    detalles        : {"std": 0.6614, "media": 298.25, "z_score": 2.6458, "rango_max": 299.57, "rango_min": 296.93, "n_muestras": 8}
+
+    id              : 6a58738a-e969-4eeb-a208-813b93b9d711
+    tipo_anomalia   : valor_atipico
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.dimensiones_alto_valor
+    valor_detectado : 45.0 mm
+    valor_esperado  : 45.79 - 52.78 mm
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.299692+00:00
+    detalles        : {"std": 1.7496, "media": 49.2857, "z_score": 2.4495, "rango_max": 52.78, "rango_min": 45.79, "n_muestras": 7}
+
+    id              : 5e64fb39-d131-4535-9388-4a5601153334
+    tipo_anomalia   : valor_atipico
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.peso_valor
+    valor_detectado : 220.0 g
+    valor_esperado  : -25.34 - 195.34 g
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.300692+00:00
+    detalles        : {"std": 55.1699, "media": 85.0, "z_score": 2.447, "rango_max": 195.34, "rango_min": -25.34, "n_muestras": 7}
+
+    id              : faf16e0b-10e4-4265-8c55-be221017100c
+    tipo_anomalia   : rango_categoria
+    severidad       : advertencia
+    campo_afectado  : caracteristicas.peso_valor
+    valor_detectado : 220.0 g
+    valor_esperado  : 35 – 110 g
+    estado          : pendiente
+    contexto        : actualizacion
+    fecha_deteccion : 2026-09-25 19:30:59.300692+00:00
+    detalles        : {"campo": "peso_valor", "valor": 220.0, "unidad": "g", "categoria": "Separador", "rango_max": 110, "rango_min": 35}
+
+  Registros de duplicado semantico: 0
+
+==============================================================================
+RESUMEN
+==============================================================================
+  A.5  transicion bloqueada con anomalia pendiente : OK
+  A.9  transicion exitosa tras resolver            : OK
+  B.4  el detector usa la columna embedding (<=>)  : OK
+  B.5  duplicado semantico registrado              : NO DETECTADO
+
+  Registros creados (para limpieza):
+    materiales: ['f670ba32-6dc4-47aa-b3c0-140a5c65bc17', 'd265f348-db1e-4216-ae86-ae7b27764b28']
+    fichas    : ['67b441bb-20c1-460d-955b-108e2e12f0a8', 'df0c6e27-ee40-470e-9b2e-63ef1ec09f04']

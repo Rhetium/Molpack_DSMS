@@ -3,7 +3,8 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, FileText, AlertTriangle, Package,
   Ruler, Egg, BoxSelect, Bug, ShieldCheck, ChevronRight,
-  Download, FileSpreadsheet, Image, FlaskConical, History,
+  Download, FileSpreadsheet, Image, FlaskConical, History, Store,
+  CheckCircle, XCircle,
 } from 'lucide-react';
 import api from '../../../lib/api';
 import ImagenesFicha from './ImagenesFicha';
@@ -95,6 +96,16 @@ export default function FichaDetallePage() {
   useEffect(() => {
     cargar();
   }, [id]);
+
+  // Resolver sin salir de la ficha: el bloqueo de estado se levanta acá mismo.
+  async function resolverAnomalia(idAnomalia, estado) {
+    try {
+      await api.patch(`/anomalias/${idAnomalia}/resolver`, { estado, nota: null });
+      await cargar();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Error al resolver la anomalía');
+    }
+  }
 
   async function cambiarEstado(nuevoEstado) {
     // Verificar anomalías pendientes antes de cambiar
@@ -322,6 +333,25 @@ export default function FichaDetallePage() {
               <button
                 onClick={async () => {
                   try {
+                    const res = await api.get(`/dsms/export/ficha/${id}/comercial/pdf`, { responseType: 'blob' });
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `ficha_comercial_${ficha.codigo_material_local || id}.pdf`;
+                    link.click();
+                    window.URL.revokeObjectURL(url);
+                  } catch (err) {
+                    alert(err.response?.data?.detail || 'Error al exportar la ficha comercial');
+                  }
+                }}
+                className="inline-flex items-center gap-1 px-4 py-2 bg-[#29b34b] text-white rounded-lg text-sm font-medium hover:bg-[#044926] transition-colors"
+              >
+                <Store size={14} />
+                Exportar Ficha Comercial
+              </button>
+              <button
+                onClick={async () => {
+                  try {
                     const res = await api.get('/dsms/export/fichas/excel', { responseType: 'blob' });
                     const url = window.URL.createObjectURL(new Blob([res.data]));
                     const link = document.createElement('a');
@@ -388,7 +418,7 @@ export default function FichaDetallePage() {
         />
       )}
       {tab === 'versiones' && <TabVersiones versiones={versiones} actualId={id} />}
-      {tab === 'anomalias' && <TabAnomalias anomalias={anomalias} />}
+      {tab === 'anomalias' && <TabAnomalias anomalias={anomalias} onResolver={resolverAnomalia} />}
     </div>
   );
 }
@@ -560,8 +590,9 @@ function SeccionJsonb({ datos, titulo, camposModificados }) {
 }
 
 /* ========== Tab Anomalías ========== */
-function TabAnomalias({ anomalias }) {
+function TabAnomalias({ anomalias, onResolver }) {
   const iconos = { critica: '🔴', advertencia: '🟡', informativa: '🔵' };
+  const pendientes = anomalias.filter((a) => a.estado === 'pendiente').length;
 
   if (anomalias.length === 0) {
     return (
@@ -574,30 +605,63 @@ function TabAnomalias({ anomalias }) {
 
   return (
     <div className="space-y-3">
+      {pendientes > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-orange-500" />
+          <p className="text-sm text-orange-700">
+            {pendientes} anomalía(s) pendiente(s) impiden que esta ficha avance de estado.
+            Acéptalas o descártalas para desbloquear la transición.
+          </p>
+        </div>
+      )}
       {anomalias.map((a) => (
         <div key={a.id} className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <span>{iconos[a.severidad]}</span>
-            <span className="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded">
-              {a.tipo_anomalia}
-            </span>
-            <span className={`text-xs px-2 py-0.5 rounded ${
-              a.estado === 'pendiente' ? 'bg-orange-50 text-orange-600' : 'bg-gray-50 text-gray-500'
-            }`}>
-              {a.estado}
-            </span>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span>{iconos[a.severidad]}</span>
+                <span className="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded">
+                  {a.tipo_anomalia}
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded ${
+                  a.estado === 'pendiente' ? 'bg-orange-50 text-orange-600' : 'bg-gray-50 text-gray-500'
+                }`}>
+                  {a.estado}
+                </span>
+              </div>
+              <p className="text-sm text-gray-900">{a.mensaje}</p>
+              {a.campo_afectado && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Campo: {a.campo_afectado}
+                  {a.valor_detectado && ` | Detectado: ${a.valor_detectado}`}
+                  {a.valor_esperado && ` | Esperado: ${a.valor_esperado}`}
+                </p>
+              )}
+              <p className="text-xs text-gray-400 mt-1">
+                {new Date(a.fecha_deteccion).toLocaleString('es')}
+                {a.resuelto_por && ` · resuelta por ${a.resuelto_por}`}
+              </p>
+            </div>
+
+            {a.estado === 'pendiente' && onResolver && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => onResolver(a.id, 'aceptada')}
+                  title="Aceptar (el valor es correcto)"
+                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                >
+                  <CheckCircle size={18} />
+                </button>
+                <button
+                  onClick={() => onResolver(a.id, 'descartada')}
+                  title="Descartar (falso positivo)"
+                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <XCircle size={18} />
+                </button>
+              </div>
+            )}
           </div>
-          <p className="text-sm text-gray-900">{a.mensaje}</p>
-          {a.campo_afectado && (
-            <p className="text-xs text-gray-400 mt-1">
-              Campo: {a.campo_afectado}
-              {a.valor_detectado && ` | Detectado: ${a.valor_detectado}`}
-              {a.valor_esperado && ` | Esperado: ${a.valor_esperado}`}
-            </p>
-          )}
-          <p className="text-xs text-gray-400 mt-1">
-            {new Date(a.fecha_deteccion).toLocaleString('es')}
-          </p>
         </div>
       ))}
     </div>

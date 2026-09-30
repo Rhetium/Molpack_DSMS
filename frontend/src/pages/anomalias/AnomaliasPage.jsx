@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle, XCircle, Filter } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, CheckCircle, XCircle, Filter, Search, FileText, Package } from 'lucide-react';
 import api from '../../../lib/api';
 
 const coloresSeveridad = {
@@ -19,6 +20,46 @@ export default function AnomaliasPage() {
   const [cargando, setCargando] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('pendiente');
   const [filtroSeveridad, setFiltroSeveridad] = useState('');
+  const [busqueda, setBusqueda] = useState('');
+  // Las anomalías solo guardan kitem_id; el código legible se resuelve
+  // en el cliente, igual que en AuditoriaPage.
+  const [nombresMap, setNombresMap] = useState({});
+
+  useEffect(() => {
+    async function cargarNombres() {
+      try {
+        const [matRes, fichaRes] = await Promise.allSettled([
+          api.get('/material'),
+          api.get('/ficha'),
+        ]);
+        const map = {};
+        if (matRes.status === 'fulfilled') {
+          matRes.value.data.forEach((m) => {
+            map[m.id_material_corporativo] = m.nombre_corporativo;
+          });
+        }
+        if (fichaRes.status === 'fulfilled') {
+          fichaRes.value.data.forEach((f) => {
+            map[f.id_ficha] = f.codigo_ficha_local || f.codigo_material_local || f.id_ficha;
+          });
+        }
+        setNombresMap(map);
+      } catch (e) {
+        console.error('Error cargando nombres:', e);
+      }
+    }
+    cargarNombres();
+  }, []);
+
+  function getNombre(kitemId) {
+    return nombresMap[kitemId] || kitemId;
+  }
+
+  function rutaKitem(anomalia) {
+    return anomalia.ktype === 'MaterialComercial'
+      ? `/materiales/${anomalia.kitem_id}`
+      : `/fichas/${anomalia.kitem_id}?tab=anomalias`;
+  }
 
   async function cargar() {
     setCargando(true);
@@ -39,6 +80,24 @@ export default function AnomaliasPage() {
   useEffect(() => {
     cargar();
   }, [filtroEstado, filtroSeveridad]);
+
+  // Búsqueda libre sobre lo ya cargado: código de la ficha/material, mensaje,
+  // tipo de anomalía y campo afectado.
+  const visibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return anomalias;
+    return anomalias.filter((a) =>
+      [
+        getNombre(a.kitem_id),
+        a.mensaje,
+        a.tipo_anomalia,
+        a.campo_afectado,
+        a.valor_detectado,
+      ]
+        .filter(Boolean)
+        .some((campo) => String(campo).toLowerCase().includes(q))
+    );
+  }, [anomalias, busqueda, nombresMap]);
 
   async function resolverAnomalia(id, estado) {
     try {
@@ -90,7 +149,25 @@ export default function AnomaliasPage() {
           <option value="advertencia">Advertencias</option>
           <option value="informativa">Informativas</option>
         </select>
+
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="search"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por código, mensaje o campo..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b]"
+          />
+        </div>
       </div>
+
+      {!cargando && (
+        <p className="text-xs text-gray-400 mb-3">
+          {visibles.length} de {anomalias.length} anomalía(s) cargada(s)
+          {busqueda.trim() && ' · filtrado en pantalla'}
+        </p>
+      )}
 
       {/* Lista de anomalías */}
       <div className="space-y-3">
@@ -98,13 +175,13 @@ export default function AnomaliasPage() {
           <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-500">
             Cargando anomalías...
           </div>
-        ) : anomalias.length === 0 ? (
+        ) : visibles.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center">
             <AlertTriangle size={40} className="mx-auto text-gray-300 mb-3" />
             <p className="text-sm text-gray-500">No hay anomalías con los filtros seleccionados</p>
           </div>
         ) : (
-          anomalias.map((anomalia) => (
+          visibles.map((anomalia) => (
             <div
               key={anomalia.id}
               className={`bg-white rounded-xl border p-5 ${
@@ -112,7 +189,16 @@ export default function AnomaliasPage() {
               }`}
             >
               <div className="flex items-start justify-between">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
+                  {/* A qué ficha o material pertenece */}
+                  <Link
+                    to={rutaKitem(anomalia)}
+                    className="inline-flex items-center gap-1.5 mb-2 text-sm font-semibold text-[#044926] hover:text-[#29b34b] hover:underline"
+                  >
+                    {anomalia.ktype === 'MaterialComercial' ? <Package size={14} /> : <FileText size={14} />}
+                    {getNombre(anomalia.kitem_id)}
+                  </Link>
+
                   {/* Severidad + Tipo */}
                   <div className="flex items-center gap-2 mb-2">
                     <span>{iconosSeveridad[anomalia.severidad]}</span>

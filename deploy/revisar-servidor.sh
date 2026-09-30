@@ -39,6 +39,68 @@ else
   echo "docker   : NO INSTALADO"
 fi
 
+titulo "Direccionamiento de Docker"
+# Lo que se valida aca es el trabajo de deploy/daemon.json.ejemplo: sacar a
+# Docker del rango 172.16-172.31, que contiene las redes de Molpack.
+if [ -f /etc/docker/daemon.json ]; then
+  echo "daemon.json: PRESENTE"
+  if hay python3 && python3 -c 'import json,sys; json.load(open("/etc/docker/daemon.json"))' 2>/dev/null; then
+    echo "  JSON valido: OK"
+  else
+    echo "  JSON valido: NO PARSEA  <-- el demonio lo ignora entero"
+  fi
+  sed 's/^/  | /' /etc/docker/daemon.json
+  grep -q '192.168.250.1/24' /etc/docker/daemon.json \
+    && echo "  OK    bip declarado" || echo "  FALTA bip 192.168.250.1/24"
+  grep -q '192.168.244.0/22' /etc/docker/daemon.json \
+    && echo "  OK    default-address-pools declarado" \
+    || echo "  FALTA default-address-pools 192.168.244.0/22"
+else
+  echo "daemon.json: NO EXISTE en /etc/docker/  <-- el paso no se aplico"
+  echo "  (ojo: si se escribio en /eyc/docker/ por un typo, el demonio no lo lee)"
+  ls -la /eyc/docker/ 2>/dev/null && echo "  ^^ existe /eyc/docker: ahi quedo el archivo mal puesto"
+fi
+
+echo
+echo "docker0 real:"
+if ip -4 addr show docker0 2>/dev/null | grep -q inet; then
+  ip -4 addr show docker0 | awk '/inet /{print "  "$2}'
+  ip -4 addr show docker0 | grep -q '192.168.250.1/24' \
+    && echo "  OK    docker0 fuera del rango corporativo" \
+    || echo "  MAL   docker0 NO esta en 192.168.250.1/24 (demonio sin reiniciar?)"
+else
+  echo "  docker0 no existe o esta caido"
+fi
+
+echo
+echo "Subredes de las redes Docker existentes:"
+if hay docker && docker info >/dev/null 2>&1; then
+  malas=0
+  while read -r n; do
+    [ -z "$n" ] && continue
+    sub=$(docker network inspect "$n" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)
+    [ -z "$sub" ] && continue
+    if echo "$sub" | grep -qE '(^| )172\.(1[6-9]|2[0-9]|3[01])\.'; then
+      echo "  CONFLICTO  $n -> $sub"
+      malas=$((malas+1))
+    else
+      echo "  ok         $n -> $sub"
+    fi
+  done <<< "$(docker network ls --format '{{.Name}}')"
+  [ "$malas" -eq 0 ] && echo "  Ninguna red en 172.16-172.31: OK" \
+                     || echo "  $malas red(es) en conflicto: hay que borrarlas (docker network prune -f)"
+else
+  echo "  (sin acceso al demonio)"
+fi
+
+echo
+echo "Rutas que Docker instalo (solo interfaces docker0/br-*):"
+ip -4 route show 2>/dev/null | grep -E 'dev (docker0|br-)' | sed 's/^/  /' \
+  || echo "  ninguna"
+echo "Red corporativa del propio servidor (debe seguir intacta):"
+ip -4 route show 2>/dev/null | grep -E '172\.21\.' | grep -vE 'dev (docker0|br-)' | sed 's/^/  /' \
+  || echo "  NO HAY RUTA A 172.21.x  <-- el servidor perdio su propia LAN"
+
 titulo "Proyecto"
 DIR=""
 for d in "$HOME/Molpack_DSMS" "$HOME/molpack_dsms" /opt/Molpack_DSMS \

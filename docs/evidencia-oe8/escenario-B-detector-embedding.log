@@ -1,0 +1,64 @@
+ESCENARIO B — El Detector 3 usa el vector semantico del K-Item
+==============================================================================
+
+--- PASO B.1: Igualar la denominacion comercial de ambos materiales ---
+  Los dos materiales siguen siendo K-Items distintos (UUID distinto);
+  solo se iguala el nombre para forzar la maxima similitud semantica.
+  HTTP 200  material B -> nombre_corporativo='Separador Prueba OE8'
+    material A: f670ba32-6dc4-47aa-b3c0-140a5c65bc17  nombre='Separador Prueba OE8'
+    material B: d265f348-db1e-4216-ae86-ae7b27764b28  nombre='Separador Prueba OE8'
+
+--- PASO B.2: Resolver las anomalias pendientes de la ficha B para poder avanzarla ---
+  4 anomalia(s) pendiente(s)
+    HTTP 200  valor_atipico    caracteristicas.dimensiones_largo_valor -> descartada
+    HTTP 200  valor_atipico    caracteristicas.dimensiones_alto_valor -> descartada
+    HTTP 200  valor_atipico    caracteristicas.peso_valor -> descartada
+    HTTP 200  rango_categoria  caracteristicas.peso_valor -> descartada
+
+--- PASO B.3: Llevar la ficha B a Preliminar (recalcula el embedding enriquecido) ---
+  HTTP 200  POST /api/ficha/{id}/aprobar-inicial
+  Estado de la ficha B: Preliminar
+
+--- PASO B.4: Texto vectorizado y similitud coseno calculada por pgvector ---
+  ficha A (dim=384)
+    nombre     : Ficha: Separador Prueba OE8 - OE8-TEST-001 (VE)
+    descripcion: Ficha técnica 1.0 de Separador Prueba OE8 (categoría: Separador, contenido: Huevos). Código local: OE8-TEST-001, país: VE.
+  ficha B (dim=384)
+    nombre     : Ficha: Separador Prueba OE8 - OE8-TEST-002 (VE)
+    descripcion: Ficha técnica 1.0 de Separador Prueba OE8 (categoría: Separador, contenido: Huevos). Código local: OE8-TEST-002, país: VE.
+
+  SQL> select 1 - (a.embedding <=> b.embedding) from kitem a, kitem b
+       where a.id='67b441bb-20c1-460d-955b-108e2e12f0a8' and b.id='df0c6e27-ee40-470e-9b2e-63ef1ec09f04';
+  similitud = 0.992558    umbral Detector 3 (fichas) = 0.95    SUPERA EL UMBRAL
+
+--- PASO B.5: SQL emitido por el Detector 3 durante el analisis ---
+  Consultas con el operador de distancia coseno de pgvector: 2
+
+  SELECT kitem.id, kitem.ktype, kitem.nombre, kitem.descripcion, kitem.estado, kitem.metadata_extra, kitem.embedding, kitem.usuario_creador, kitem.usuario_ultima_actualizacion, kitem.fecha_creacion, kitem.fecha_actualizacion, $1::INTEGER - (kitem.embedding <=> $2) AS similitud FROM kitem WHERE kitem.embedding IS NOT NULL AND kitem.id != $3::UUID AND kitem.ktype = $4::VARCHAR ORDER BY (kitem.embedding <=> $2) ASC LIMIT $5::INTEGER
+
+  Lectura: el detector no recalcula vectores en Python. Ordena y filtra
+  con 'kitem.embedding <=> :vector_referencia' — la columna embedding de
+  la tabla kitem — y deriva la similitud como 1 - distancia_coseno.
+
+--- PASO B.6: Anomalia de duplicado semantico en anomalia_registro ---
+  SQL> select * from anomalia_registro where kitem_id='df0c6e27-ee40-470e-9b2e-63ef1ec09f04'
+         and tipo_anomalia='duplicado_semantico';
+  (1 fila(s))
+    id             : dea6d23e-8da1-4d26-ba02-dcfca7df7712
+    tipo_anomalia  : duplicado_semantico
+    severidad      : critica
+    estado         : pendiente
+    fecha_deteccion: 2026-09-25 19:33:35.632287+00:00
+    mensaje        : Posible duplicado detectado: 'Ficha: Separador Prueba OE8 - OE8-TEST-001 (VE)' tiene 99% de similitud con fichas de un material diferente. ¿Es el mismo producto registrado dos veces?
+    detalles       : {
+  "similitud": 0.9926,
+  "kitem_similar_id": "67b441bb-20c1-460d-955b-108e2e12f0a8",
+  "kitem_similar_nombre": "Ficha: Separador Prueba OE8 - OE8-TEST-001 (VE)"
+}
+    -> similitud almacenada en el payload: 0.9926
+    -> kitem_similar_id == ficha A: True
+
+==============================================================================
+  B.4 similitud coseno via pgvector : 0.992558
+  B.5 SQL usa kitem.embedding (<=>) : OK
+  B.6 duplicado_semantico registrado: OK

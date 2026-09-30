@@ -6,9 +6,13 @@ que el usuario configura. Si no hay plantilla, genera un PDF limpio.
 
 Solo se pueden exportar fichas en estado Preliminar o Vigente.
 
+La ficha comercial (`exportar_ficha_comercial_pdf`) parte del mismo K-Item,
+pero usa su propia plantilla y solo los campos que ve el cliente.
+
 Uso:
     service = ExportService(db_session)
     pdf_bytes = await service.exportar_ficha_pdf(id_ficha, plantilla_path=None)
+    com_bytes = await service.exportar_ficha_comercial_pdf(id_ficha)
     xlsx_bytes = await service.exportar_fichas_excel(filtros)
 """
 
@@ -189,6 +193,194 @@ class ExportService:
                     y = height - 50
         return y
 
+    # ──────────────────────────────────────────────────────────────────
+    # Ficha comercial
+    #
+    # Misma fuente de datos (el K-Item de la ficha + su material), pero
+    # otra plantilla y otro subconjunto de campos: solo lo que el cliente
+    # necesita ver, sin microbiología, tolerancias de proceso ni plano
+    # mecánico.
+    # ──────────────────────────────────────────────────────────────────
+
+    async def exportar_ficha_comercial_pdf(
+        self,
+        id_ficha: UUID,
+        plantilla_path: str | None = None,
+    ) -> bytes:
+        ficha, material = await self._obtener_ficha_con_material(id_ficha)
+
+        overlay_buffer = io.BytesIO()
+        self._generar_overlay_comercial(overlay_buffer, ficha, material)
+        overlay_buffer.seek(0)
+
+        if plantilla_path:
+            return self._merge_con_plantilla(plantilla_path, overlay_buffer)
+        else:
+            return overlay_buffer.getvalue()
+
+    def _generar_overlay_comercial(self, buffer, ficha, material):
+        c = canvas.Canvas(buffer, pagesize=letter)
+        width, height = letter
+
+        y = self._dibujar_cabecera_comercial(c, ficha, material, width, height)
+        y = self._dibujar_identificacion_comercial(c, ficha, material, y)
+
+        y = self._seccion_titulo(c, "ESPECIFICACIONES DEL PRODUCTO", 50, y, width)
+        y = self._dibujar_grid_campos(c, self._campos_especificaciones_comercial(ficha), 60, y, width)
+
+        y = self._salto_si_necesario(c, y, height, 140)
+        y = self._seccion_titulo(c, "EMPAQUE Y ESTIBA", 50, y, width)
+        y = self._dibujar_grid_campos(c, self._campos_empaque_comercial(ficha), 60, y, width)
+
+        if ficha.caracteristicas_contenido:
+            y = self._salto_si_necesario(c, y, height, 150)
+            y = self._seccion_titulo(c, "CARACTERÍSTICAS POR CONTENIDO", 50, y, width)
+            y = self._tabla_medidas(c, ficha.caracteristicas_contenido, 50, y, width)
+
+        uso = (ficha.manejo_disposicion or {}).get("uso")
+        if uso and str(uso).strip():
+            y = self._salto_si_necesario(c, y, height, 120)
+            y = self._seccion_titulo(c, "RECOMENDACIÓN DE USO", 50, y, width)
+            y = self._dibujar_parrafo(c, str(uso), 60, y, width - 110)
+
+        self._dibujar_pie_comercial(c, ficha, width)
+        c.save()
+
+    def _dibujar_cabecera_comercial(self, c, ficha, material, width, height):
+        y = height - 50
+        c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(VERDE_OSCURO)
+        c.drawString(50, y, "FICHA COMERCIAL")
+        y -= 19
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(NEGRO)
+        c.drawString(50, y, self._nombre_comercial(ficha, material))
+        y -= 14
+        c.setFont("Helvetica", 9)
+        c.setFillColor(GRIS)
+        c.drawString(50, y, f"Código: {ficha.codigo_material_local or ficha.codigo_ficha_local or '—'}")
+        c.drawRightString(width - 50, y, ficha.pais or "")
+        y -= 8
+        c.setStrokeColor(VERDE_CLARO)
+        c.setLineWidth(2)
+        c.line(50, y, width - 50, y)
+        return y - 22
+
+    def _dibujar_identificacion_comercial(self, c, ficha, material, y_top):
+        """Datos de identificación a la izquierda, foto del producto a la derecha."""
+        X_IZQ, X_DER = 50, 325
+        COL_IZQ_W, COL_DER_W = 255, 220
+
+        y_izq = self._seccion_titulo_col(c, "IDENTIFICACIÓN DEL PRODUCTO", X_IZQ, y_top, COL_IZQ_W)
+        for label, valor in self._campos_identificacion_comercial(ficha, material):
+            y_izq = self._campo_col(c, label, valor, X_IZQ, y_izq, COL_IZQ_W)
+
+        y_der = self._dibujar_imagenes(
+            c, ficha, X_DER, y_top, COL_DER_W,
+            tipos=[("foto_producto", "FOTO DEL PRODUCTO")],
+        )
+        return min(y_izq, y_der) - 18
+
+    def _dibujar_pie_comercial(self, c, ficha, width):
+        c.setFont("Helvetica", 7)
+        c.setFillColor(GRIS)
+        c.drawString(50, 30, f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}  |  DSMS Molpack Corporation")
+        c.drawRightString(width - 50, 30, f"Versión: {ficha.codigo_version}")
+
+    def _dibujar_grid_campos(self, c, campos, x, y, width, columnas=2):
+        """Reparte pares (label, valor) en una rejilla de N columnas."""
+        col_w = (width - x - 50) / columnas
+        for i in range(0, len(campos), columnas):
+            fila = campos[i:i + columnas]
+            for j, (label, valor) in enumerate(fila):
+                self._campo_col(c, label, valor, x + j * col_w, y, col_w - 10)
+            y -= 14
+        return y - 8
+
+    def _salto_si_necesario(self, c, y, height, minimo):
+        if y < minimo:
+            c.showPage()
+            return height - 50
+        return y
+
+    # ── Extracción de campos comerciales (lógica pura) ──
+
+    def _nombre_comercial(self, ficha, material):
+        nombre = material.nombre_corporativo if material else None
+        return nombre or ficha.nombre_local_material or "—"
+
+    def _campos_identificacion_comercial(self, ficha, material):
+        caract = ficha.caracteristicas or {}
+        return [
+            ("Nombre Corporativo", self._o_guion(material.nombre_corporativo if material else None)),
+            ("Nombre Local", self._o_guion(ficha.nombre_local_material)),
+            ("Material Base", self._o_guion(material.material_base if material else None)),
+            ("Color", self._o_guion(caract.get("color"))),
+            ("Sector", self._o_guion(material.sector if material else None)),
+            ("Contenido", self._o_guion(material.contenido if material else None)),
+            ("Característica", self._o_guion(material.caracteristica if material else None)),
+            ("Capacidad", self._o_guion(material.capacidad_nominal if material else None)),
+        ]
+
+    def _campos_especificaciones_comercial(self, ficha):
+        caract = ficha.caracteristicas or {}
+        return [
+            ("Dimensiones", self._texto_dimensiones(caract)),
+            ("Peso", self._texto_medida(caract, "peso")),
+        ]
+
+    def _campos_empaque_comercial(self, ficha):
+        emp = ficha.empaque_estiba or {}
+        return [
+            ("Tipo de Empaque", self._o_guion(emp.get("tipo_empaque"))),
+            ("Unidades/Empaque", self._o_guion(emp.get("undidades_empaque"))),
+            ("Alto del Empaque", self._texto_medida(emp, "alto_empaque")),
+            ("Peso del Empaque", self._texto_medida(emp, "peso_empaque")),
+            ("Empaques/Estiba", self._o_guion(emp.get("empaques_estiba"))),
+            ("Camas/Estiba", self._o_guion(emp.get("camas_estiba"))),
+            ("Empaques/Cama", self._o_guion(emp.get("empaques_camas_estiba"))),
+        ]
+
+    def _o_guion(self, valor):
+        if valor is None or str(valor).strip() == "":
+            return "—"
+        return str(valor)
+
+    def _texto_medida(self, datos, prefijo):
+        """Arma '50 ± 2 g' desde <prefijo>_valor / _tolerancia / _unidad."""
+        datos = datos or {}
+        if datos.get(f"{prefijo}_nc"):
+            return "N/C"
+        valor = datos.get(f"{prefijo}_valor")
+        if valor is None or str(valor).strip() == "":
+            return "—"
+        texto = str(valor)
+        tolerancia = datos.get(f"{prefijo}_tolerancia")
+        if tolerancia is not None and str(tolerancia).strip() != "":
+            texto += f" ± {tolerancia}"
+        unidad = datos.get(f"{prefijo}_unidad")
+        if unidad is not None and str(unidad).strip() != "":
+            texto += f" {unidad}"
+        return texto
+
+    def _texto_dimensiones(self, caract):
+        """Arma 'largo × ancho × alto' con la unidad. Sin tolerancias: la
+        ficha comercial muestra la medida nominal."""
+        caract = caract or {}
+        medidas = []
+        for eje in ("largo", "ancho", "alto"):
+            valor = caract.get(f"dimensiones_{eje}_valor")
+            if valor is None or str(valor).strip() == "":
+                continue
+            unidad = caract.get(f"dimensiones_{eje}_unidad")
+            medidas.append((str(valor), str(unidad or "").strip()))
+        if not medidas:
+            return "—"
+        unidades = {u for _, u in medidas if u}
+        if len(unidades) == 1:
+            return " × ".join(v for v, _ in medidas) + f" {unidades.pop()}"
+        return " × ".join(f"{v} {u}".strip() for v, u in medidas)
+
     def _merge_con_plantilla(self, plantilla_path: str, overlay_buffer) -> bytes:
         """Combina la plantilla PDF con el overlay de datos."""
         plantilla_reader = PdfReader(plantilla_path)
@@ -265,14 +457,16 @@ class ExportService:
         y -= 14
         return y
 
-    def _dibujar_imagenes(self, c, ficha, x, y, col_width):
+    _TIPOS_IMAGEN = [("foto_producto", "FOTO DEL PRODUCTO"), ("plano_mecanico", "PLANO MECÁNICO")]
+
+    def _dibujar_imagenes(self, c, ficha, x, y, col_width, tipos=None):
         imagenes = (ficha.caracteristicas or {}).get("imagenes", {})
         if not imagenes:
             return y
         img_h = 105
         label_h = 13
         gap = 10
-        tipos = [("foto_producto", "FOTO DEL PRODUCTO"), ("plano_mecanico", "PLANO MECÁNICO")]
+        tipos = tipos or self._TIPOS_IMAGEN
         for tipo_id, tipo_label in tipos:
             info = imagenes.get(tipo_id)
             if not info:
@@ -373,25 +567,26 @@ class ExportService:
         c.drawString(x, y, nombre)
         y -= 14
 
-        c.setFont("Helvetica", 8)
-        c.setFillColor(NEGRO)
+        y = self._dibujar_parrafo(c, texto, x + 10, y, width - 100)
+        y -= 8
+        return y
 
-        max_width = width - 100
-        words = texto.split()
+    def _dibujar_parrafo(self, c, texto, x, y, max_width, size=8):
+        """Escribe texto con ajuste de linea dentro de max_width."""
+        c.setFont("Helvetica", size)
+        c.setFillColor(NEGRO)
         line = ""
-        for word in words:
+        for word in texto.split():
             test = line + " " + word if line else word
-            if c.stringWidth(test, "Helvetica", 8) > max_width:
-                c.drawString(x + 10, y, line)
+            if c.stringWidth(test, "Helvetica", size) > max_width:
+                c.drawString(x, y, line)
                 y -= 12
                 line = word
             else:
                 line = test
         if line:
-            c.drawString(x + 10, y, line)
+            c.drawString(x, y, line)
             y -= 12
-
-        y -= 8
         return y
 
     _EXCEL_HEADERS = [
