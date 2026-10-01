@@ -4,10 +4,31 @@ import { Eye, EyeOff, LogIn } from 'lucide-react';
 import api from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
 
+// Solo se recuerda el nombre de usuario, nunca la contraseña.
+const CLAVE_USUARIO_RECORDADO = 'dsms_usuario_recordado';
+
+function leerUsuarioRecordado() {
+  try {
+    return localStorage.getItem(CLAVE_USUARIO_RECORDADO) || '';
+  } catch {
+    return '';
+  }
+}
+
+function guardarUsuarioRecordado(usuario, recordar) {
+  try {
+    if (recordar) localStorage.setItem(CLAVE_USUARIO_RECORDADO, usuario);
+    else localStorage.removeItem(CLAVE_USUARIO_RECORDADO);
+  } catch {
+    // Almacenamiento no disponible (modo privado, bloqueado): se ignora.
+  }
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [usuario, setUsuario] = useState('');
+  const [usuario, setUsuario] = useState(leerUsuarioRecordado);
+  const [recordarUsuario, setRecordarUsuario] = useState(() => leerUsuarioRecordado() !== '');
   const [password, setPassword] = useState('');
   const [mostrarPassword, setMostrarPassword] = useState(false);
   const [error, setError] = useState(null);
@@ -33,6 +54,7 @@ export default function LoginPage() {
       const data = res.data;
 
       if (data.exito) {
+        guardarUsuarioRecordado(usuario.trim(), recordarUsuario);
         login({
           usuario: data.usuario,
           nombre: data.nombre,
@@ -133,6 +155,7 @@ export default function LoginPage() {
                 onChange={(e) => setUsuario(e.target.value)}
                 placeholder="nombre.apellido"
                 autoComplete="username"
+                autoFocus={!usuario}
                 className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b] focus:border-transparent transition-shadow"
               />
             </div>
@@ -148,6 +171,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete="current-password"
+                  autoFocus={!!usuario}
                   onKeyDown={(e) => e.key === 'Enter' && handleSubmit(e)}
                   className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#29b34b] focus:border-transparent transition-shadow"
                 />
@@ -160,6 +184,19 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={recordarUsuario}
+                onChange={(e) => {
+                  setRecordarUsuario(e.target.checked);
+                  if (!e.target.checked) guardarUsuarioRecordado('', false);
+                }}
+                className="w-4 h-4 rounded border-gray-300 accent-[#29b34b] cursor-pointer"
+              />
+              Recordar usuario
+            </label>
 
             <button
               onClick={handleSubmit}
