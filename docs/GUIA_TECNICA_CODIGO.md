@@ -249,12 +249,17 @@ justificación:
 
 | Constante | Valor | Fundamento |
 |---|---|---|
-| `ZSCORE_ADVERTENCIA` | 2.0 | En una normal, ±2σ cubre el 95.4%. Fuera de ahí → 1 de cada 22 casos |
-| `ZSCORE_CRITICO` | 3.0 | ±3σ cubre el 99.7%. Fuera → 1 de cada 370 |
-| `MIN_MUESTRAS_ESTADISTICAS` | 3 | Con menos, media y desviación no tienen sentido |
+| `ZSCORE_ADVERTENCIA` | 3.5 | Umbral estándar del z-score modificado (Iglewicz & Hoaglin) sobre mediana + MAD |
+| `ZSCORE_CRITICO` | 6.0 | Desvío inequívoco: errores de digitación o de unidad |
+| `ESCALA_MINIMA_RELATIVA` | 0.02 | Piso de la escala (2% de la mediana): fichas idénticas no convierten cualquier diferencia en anomalía |
+| `ESCALA_MINIMA_SIN_TOLERANCIA` | 0.05 | Piso para campos sin tolerancia declarada (ruptura, deflexión): enteros pequeños donde 1 unidad ya es varios % |
+| `MIN_MUESTRAS_ESTADISTICAS` | 3 | Con menos, mediana y MAD no tienen sentido |
+| `MIN_MUESTRAS_MATERIAL` / `MIN_MUESTRAS_FAMILIA` | 3 / 5 | Fichas necesarias para comparar contra el mismo material o la misma familia |
 | `MIN_MUESTRAS_ML` | 5 | Mínimo para entrenar un Isolation Forest por categoría |
-| `UMBRAL_DUPLICADO_FICHA` | 0.95 | Fichas del mismo dominio comparten vocabulario: umbral alto |
-| `UMBRAL_DUPLICADO_SEMANTICO` | 0.90 | Materiales tienen texto más corto y diverso |
+| `ML_PERCENTIL_ANOMALIA` | 1.0 | Percentil de los scores de entrenamiento que define el umbral de cada modelo (calibrado con la prueba de sensibilidad) |
+| `CAMPOS_DUPLICADO_CLAVE` | largo, ancho, alto, peso | Medidas que deben coincidir dentro de tolerancia para considerar duplicado |
+| `UMBRAL_DUPLICADO_MATERIAL_CRITICO` | 0.85 | Similitud entre materiales que sube un duplicado a crítico |
+| `UMBRAL_DUPLICADO_SEMANTICO` | 0.90 | Duplicados entre **materiales** (texto corto y diverso) |
 | `UMBRAL_CLASIFICACION_CRUZADA` | 0.85 | Más permisivo: sugerir, no bloquear |
 | `PORCENTAJE_UNIDAD_MAYORITARIA` | 0.70 | Se exige consenso claro antes de alertar |
 
@@ -549,33 +554,38 @@ ya existe. No valida sintaxis (eso lo hace Pydantic) sino **plausibilidad**.
 
 `analizar_ficha` orquesta 7 detectores independientes y acumula sus hallazgos:
 
-#### Detector 1 — Valores atípicos (Z-score)
+#### Detector 1 — Valores atípicos (Z-score robusto)
 
 ```python
-media = sum(valores_ref) / len(valores_ref)
-varianza = sum((v - media) ** 2 for v in valores_ref) / len(valores_ref)
-std = varianza ** 0.5
-z_score = abs(valor - media) / std
+mediana = statistics.median(valores_ref)
+mad = statistics.median(abs(v - mediana) for v in valores_ref)
+escala = max(1.4826 * mad, tolerancia_declarada, 0.02 * abs(mediana))
+z_score = abs(valor - mediana) / escala
 ```
 
-Mide **a cuántas desviaciones estándar está el valor de la media** de fichas de la
-misma categoría. z ≥ 3 → crítico; z ≥ 2 → advertencia.
+Mide **a cuántas escalas robustas está el valor de la mediana** del grupo de
+referencia. z ≥ 6 → crítico; z ≥ 3.5 → advertencia.
 
-Tres detalles que revelan cuidado:
-- **Guarda de muestras:** si hay menos de 3 fichas de referencia, no analiza. Con 2
-  muestras la desviación estándar es ruido.
-- **Caso `std == 0`:** si todas las fichas tienen el mismo valor, el z-score sería
-  división por cero. El código lo intercepta y aplica otra regla: *"difiere del
-  valor constante"*.
+Decisiones de diseño (validadas con `scripts/prueba_sensibilidad.py`):
+- **Mediana + MAD en lugar de media + σ:** un error ya cargado en la base (un ancho
+  de 29.8 mm en vez de 298) inflaba la desviación estándar y ocultaba errores
+  nuevos. La mediana y el MAD no se mueven por unos pocos valores extremos.
+- **Referencia por niveles:** primero otras fichas del **mismo material** (≥ 3);
+  si no, la **familia** (categoría + capacidad nominal, ≥ 5); si no, la categoría.
+  Comparar un separador de 20 huevos contra uno jumbo generaba falsos positivos.
+- **Piso de la escala:** la variación normal nunca se toma menor que la tolerancia
+  declarada en la ficha ni que el 2% de la mediana (5% si el campo no declara
+  tolerancia). Reemplaza al antiguo caso `std == 0`, que convertía en anomalía
+  cualquier diferencia de 1 g.
+- **Campos derivados:** gramaje (peso/área), relación alto/largo y coherencia del
+  empaque (peso del empaque ÷ unidades × peso unitario ≈ 1). Una ficha más grande y
+  más liviana tiene cada valor plausible, pero un gramaje anormal. Su tolerancia se
+  propaga desde las tolerancias de los campos que los componen.
+- **Referencia limpia:** solo fichas activas (sin Borrador ni Obsoleto). Se excluyen
+  el tiempo de encolado (parámetro de proceso) y el peso del empaque, que depende de
+  cuántas unidades lleva y varía por país; su coherencia la cubre el derivado.
 - **Campos "N/C":** si el usuario marcó un campo como *No Corresponde*
-  (`<campo>_nc == True`), se excluye del cálculo. Un campo no aplicable no debe
-  contaminar las estadísticas.
-
-> **Nota sobre la varianza poblacional.** El código divide por `n`, no por `n-1`
-> (corrección de Bessel). Con n pequeño esto **subestima** la dispersión, haciendo
-> el detector algo más sensible. Si te lo preguntan: *"Es varianza poblacional; trato
-> las fichas existentes como la población de referencia completa, no como una muestra
-> de un universo mayor. Con n-1 el detector sería más conservador."*
+  (`<campo>_nc == True`), se excluye del cálculo.
 
 #### Detector 2 — Unidades inconsistentes
 
@@ -584,24 +594,30 @@ difiere de una mayoritaria con ≥70% de consenso. Detecta el error clásico de
 cargar milímetros donde el resto usa centímetros —error que **el z-score no
 detectaría** si el número resultante cae en rango.
 
-#### Detector 3 — Duplicados semánticos
+#### Detector 3 — Duplicados (mismo producto bajo otro material)
 
-Busca K-Items con similitud ≥ 0.95. La sutileza:
+Una ficha es duplicado si una ficha activa de un **material distinto** de la misma
+categoría tiene largo, ancho, alto y peso iguales **dentro de la tolerancia
+declarada** (y la mayoría de las medidas secundarias también). Se reporta solo la
+coincidencia más cercana; es crítica si además los embeddings de los dos
+**materiales** tienen similitud ≥ 0.85.
 
-```python
-if excluir_material_id and ktype == KTYPE_FICHA_TECNICA:
-    # ignorar fichas del mismo material
-```
-
-Es **normal** que dos versiones de la ficha del mismo producto sean casi idénticas.
-Solo se alerta si fichas de **materiales distintos** lo son —eso sí indica registro
-duplicado.
+Antes se comparaban embeddings de fichas con umbral 0.95, pero la prueba de
+sensibilidad mostró que no discriminaba: el texto de la ficha es una plantilla casi
+idéntica para toda la categoría y los números quedan mal representados por el
+modelo de lenguaje, así que el 90% de las fichas normales salía como duplicado.
+Los materiales sí conservan la búsqueda semántica (`UMBRAL_DUPLICADO_SEMANTICO`).
 
 #### Detector 4 — Clasificación cruzada
 
 Si un material se parece semánticamente (≥0.85) a otro de **categoría distinta**,
-sugiere que la clasificación puede estar mal. La severidad sube a crítica si además
-hay **evidencia dimensional**:
+sugiere que la clasificación puede estar mal. Se compara el **embedding guardado**
+del material con los de los demás materiales y se reporta solo el más parecido.
+(Antes se consultaba con un texto libre armado con otra plantilla: ni el propio
+material superaba 0.80, así que el detector nunca disparaba. Con los embeddings
+guardados, la similitud máxima entre categorías distintas es ≈0.82 y dentro de la
+misma categoría 0.86–0.99.) La severidad sube a crítica si además hay **evidencia
+dimensional**:
 
 ```python
 encaja = all(... rmin <= caract[c] <= rmax for c in rangos_sug ...)
@@ -635,6 +651,8 @@ absoluta lo hace independiente de la escala del espacio.
 Los detectores 1-5 miran campos de a uno o de a pocos. Este mira **la combinación
 completa**. Detecta el caso en que cada valor individual es plausible pero su
 combinación no existe en los datos históricos (ej: largo grande + peso mínimo).
+Como los árboles cortan un eje a la vez, recibe además las variables derivadas
+gramaje y relación alto/largo, que expresan esas relaciones directamente.
 
 #### Detector 7 — Rangos duros por categoría
 
@@ -688,6 +706,11 @@ def _contamination(n: int) -> float:
 `contamination` es la proporción esperada de anomalías. Se **adapta al tamaño**: con
 pocas fichas, 1/n acotado entre 5% y 10%. Fijarlo en 10% con 5 fichas obligaría al
 modelo a marcar media ficha como anómala siempre.
+
+La decisión final, sin embargo, usa un **umbral calibrado**: el percentil
+`ML_PERCENTIL_ANOMALIA` de los scores de entrenamiento, guardado en el `.pkl`. Y el
+entrenamiento usa solo fichas **Vigentes sin anomalías pendientes**: el modelo
+aprende qué es normal a partir de datos revisados, no de borradores ni errores.
 
 ```python
 fraccion_valida = np.mean(~np.isnan(X), axis=0)

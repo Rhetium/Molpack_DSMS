@@ -19,7 +19,7 @@ isolation_forest_{categoria}.pkl     # modelo por categoría (ej: isolation_fore
 
 - Al agregar un lote de fichas nuevas.
 - Cuando una categoría alcanza 5 fichas por primera vez (habilita modelo específico).
-- Si cambia el conjunto de campos numéricos en `anomalia_constant.py::CAMPOS_CARACTERISTICAS`.
+- Si cambia el conjunto de campos numéricos en `anomalia_constant.py` (`CAMPOS_CARACTERISTICAS`, `CAMPOS_DERIVADOS`…). Un `.pkl` con otro número de columnas se ignora (con aviso en el log) hasta reentrenar.
 
 ## Parámetros del modelo
 
@@ -27,6 +27,9 @@ isolation_forest_{categoria}.pkl     # modelo por categoría (ej: isolation_fore
 |---|---|---|
 | `n_estimators` | 100 | Estable para corpus pequeño |
 | `contamination` | `clip(1/n, 0.05, 0.10)` | Dinámico: entre 5% y 10% según tamaño del dataset |
+| Umbral | percentil `ML_PERCENTIL_ANOMALIA` de los scores de entrenamiento | Calibrado por modelo y guardado en el `.pkl` |
+| Datos | Fichas Vigentes sin anomalías pendientes | El modelo aprende lo normal a partir de datos revisados |
+| Variables derivadas | gramaje (g/cm²), relación alto/largo | Capturan combinaciones incoherentes (más grande y más liviano) |
 | `random_state` | 42 | Reproducibilidad |
 | Imputer | `SimpleImputer(strategy="mean")` | Rellena campos faltantes con la media de la columna |
 | Columnas activas | ≥ 30% datos válidos | Excluye campos casi siempre vacíos |

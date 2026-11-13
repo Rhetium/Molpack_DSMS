@@ -12,12 +12,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ficha import FichaTecnica
 from app.models.material import MaterialComercial
+from app.models.kitem import KItem
+from app.models.anomalia import AnomaliaRegistro
+from app.core.dsms_constants import ESTADO_VIGENTE
 from app.core.anomalia_constant import (
     CAMPOS_CARACTERISTICAS,
     CAMPOS_CONTENIDO,
     CAMPOS_EMPAQUE,
+    CAMPOS_DERIVADOS,
+    ESTADO_ANOMALIA_PENDIENTE,
     MIN_MUESTRAS_ML,
     MODELO_GLOBAL,
+    ML_PERCENTIL_ANOMALIA,
+    calcular_derivados,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,7 +35,7 @@ MODELS_DIR.mkdir(exist_ok=True)
 ALL_NUMERIC_FIELDS: list[str] = [
     campo_valor
     for campo_valor, _, _ in CAMPOS_CARACTERISTICAS + CAMPOS_CONTENIDO + CAMPOS_EMPAQUE
-]
+] + [campo_valor for campo_valor, _, _ in CAMPOS_DERIVADOS]
 
 
 
@@ -52,6 +59,7 @@ def _extraer_vector(ficha: FichaTecnica) -> list[float | None]:
             if valor is not None and isinstance(valor, (int, float)):
                 mapa[campo_valor] = float(valor)
 
+    mapa.update(calcular_derivados(ficha.caracteristicas, ficha.empaque_estiba))
     return [mapa.get(campo) for campo in ALL_NUMERIC_FIELDS]
 
 
@@ -90,17 +98,27 @@ class MLAnomaliaService:
 
 
     async def entrenar_modelos(self) -> dict:
+        # Solo fichas Vigentes y sin anomalías pendientes: el modelo aprende
+        # qué es normal a partir de datos revisados, no de borradores ni errores.
+        con_pendientes = (
+            select(AnomaliaRegistro.kitem_id)
+            .where(AnomaliaRegistro.estado == ESTADO_ANOMALIA_PENDIENTE)
+        )
         result = await self.db.execute(
-            select(FichaTecnica, MaterialComercial).join(
+            select(FichaTecnica, MaterialComercial)
+            .join(
                 MaterialComercial,
                 FichaTecnica.id_material_corporativo
                 == MaterialComercial.id_material_corporativo,
             )
+            .join(KItem, FichaTecnica.id_ficha == KItem.id)
+            .where(KItem.estado == ESTADO_VIGENTE)
+            .where(FichaTecnica.id_ficha.notin_(con_pendientes))
         )
-        filas = result.all()
+        filas = result.unique().all()
 
         if not filas:
-            return {"error": "No hay fichas en la base de datos para entrenar"}
+            return {"error": "No hay fichas vigentes sin anomalías pendientes para entrenar"}
 
         por_categoria: dict[str, list[FichaTecnica]] = {}
         todas: list[FichaTecnica] = []
@@ -161,6 +179,8 @@ class MLAnomaliaService:
 
         pipeline = _construir_pipeline(cont)
         pipeline.fit(X_filtrado)
+        # Umbral calibrado: percentil de los scores de entrenamiento
+        umbral = float(np.percentile(pipeline.decision_function(X_filtrado), ML_PERCENTIL_ANOMALIA))
 
         datos_modelo = {
             "pipeline": pipeline,
@@ -168,6 +188,7 @@ class MLAnomaliaService:
             "campos_usados": campos_usados,
             "n_entrenamiento": n,
             "contamination": cont,
+            "umbral": umbral,
         }
         joblib.dump(datos_modelo, _ruta_modelo(nombre))
 
@@ -180,6 +201,7 @@ class MLAnomaliaService:
             "n_fichas": n,
             "campos_usados": campos_usados,
             "contamination": round(cont, 4),
+            "umbral": round(umbral, 4),
         }
 
     def predecir(
@@ -203,17 +225,24 @@ class MLAnomaliaService:
         if datos_modelo is None:
             return None
         vector = _extraer_vector(ficha)
+        if len(datos_modelo["mascara_cols"]) != len(vector):
+            logger.warning(
+                f"[ML] Modelo '{modelo_usado}' entrenado con otro conjunto de "
+                "campos; se omite hasta reentrenar (POST /anomalias/entrenar)."
+            )
+            return None
         x = np.array(
             [[np.nan if v is None else v for v in vector]], dtype=float
         )
         x_filtrado = x[:, datos_modelo["mascara_cols"]]
 
         pipeline: Pipeline = datos_modelo["pipeline"]
-        prediccion = pipeline.predict(x_filtrado)[0]
         score = float(pipeline.decision_function(x_filtrado)[0])
+        umbral = datos_modelo.get("umbral", 0.0)
 
         return {
-            "es_anomalo": bool(prediccion == -1),
+            "es_anomalo": score < umbral,
+            "umbral": umbral,
             "score": score,
             "modelo_usado": modelo_usado,
             "campos_analizados": datos_modelo["campos_usados"],

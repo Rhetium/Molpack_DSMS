@@ -48,7 +48,8 @@ Molpack **no** cuenta con reverse proxy corporativo ni balanceador que termine
 TLS, así que el propio despliegue lo resuelve: el `docker-compose.yml` incluye
 un contenedor **nginx** bajo el perfil `tls`
 ([deploy/nginx/dsms.conf](../deploy/nginx/dsms.conf)). Lo único que TI debe
-proveer es el **certificado** para `mksvx64lnn10.molpack.org`, emitido por la CA
+proveer es el **certificado** para `dsms.molpack.org` (alias del servicio; el SAN
+incluye también `mksvx64lnn10.molpack.org`, nombre corto e IP), emitido por la CA
 interna del dominio.
 
 ```
@@ -340,7 +341,8 @@ Acciones **obligatorias/recomendadas** antes de exponer el sistema.
 - [ ] **`AUTH_LOCAL_HABILITADO=false`** una vez validado el login contra el AD.
 - [ ] **`APP_BIND=127.0.0.1`** y **`FORWARDED_ALLOW_IPS=*`** con el perfil `tls`.
 - [ ] **`DB_ECHO=false`** (valor por defecto) en el entorno (Sección 5).
-- [ ] **Certificado de la CA interna** para `mksvx64lnn10.molpack.org` y, cuando
+- [ ] **Registro DNS** `dsms.molpack.org` → 172.21.5.74.
+- [ ] **Certificado de la CA interna** para `dsms.molpack.org` y, cuando
       sea confiable, **habilitar HSTS** (hoy comentado: con un certificado
       autofirmado, HSTS deja el sistema inaccesible).
 - [ ] **Usar LDAPS (636) o StartTLS** hacia el AD para no enviar credenciales en
@@ -350,8 +352,8 @@ Acciones **obligatorias/recomendadas** antes de exponer el sistema.
 - [ ] **Backups** de PostgreSQL y del directorio `uploads/`.
 - [ ] **Rotación/expiración** de la contraseña de la cuenta de servicio LDAP
       gestionada con TI.
-- [ ] **Firewall del host**: publicar 443 (y 80 para la redirección) hacia las
-      tres localidades; nada más.
+- [ ] **Firewall**: publicar solo TCP 443, autorizado por segmentos de red y
+      grupo de seguridad de AD (criterio de TI). Sin puerto 80 ni redirección.
 
 ---
 
@@ -440,7 +442,7 @@ Tras configurar el `.env`:
 
 ## 9. Verificación post-despliegue (smoke test)
 
-- [ ] `https://mksvx64lnn10.molpack.org` sirve el login; `http://` redirige al 443.
+- [ ] `https://dsms.molpack.org` sirve el login sin advertencia de certificado; el puerto 80 no responde.
 - [ ] `GET /docs` responde (OpenAPI de FastAPI) a través de nginx.
 - [ ] La respuesta trae `Content-Security-Policy`, `X-Frame-Options` y
       `X-Content-Type-Options` (`curl -kI https://…`).

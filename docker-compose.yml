@@ -68,8 +68,8 @@ services:
     restart: unless-stopped
     depends_on:
       - app
+    # Solo 443: TI no publica el 80, asi que no hay redireccion HTTP -> HTTPS.
     ports:
-      - "80:80"
       - "443:443"
     volumes:
       - ./deploy/nginx/dsms.conf:/etc/nginx/conf.d/default.conf:ro

@@ -1,4 +1,7 @@
 import os
+import json
+import base64
+import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta
@@ -70,6 +73,51 @@ USUARIOS_LOCALES = {
     },
 }
 
+# Usuarios configurados en el entorno (AUTH_USUARIOS, JSON): a diferencia de
+# los de arriba no viven en el código ni guardan la contraseña, solo su hash
+# PBKDF2. Se validan sin pasar por LDAP, así que permiten entrar sin acceso al
+# Domain Controller (fuera de la VPN). Generar el hash con:
+#   python -c "from app.services.auth_service import hashear_password as h; print(h('...'))"
+PBKDF2_ITERACIONES = 390_000
+
+
+def hashear_password(password: str, iteraciones: int = PBKDF2_ITERACIONES) -> str:
+    sal = secrets.token_bytes(16)
+    derivada = hashlib.pbkdf2_hmac("sha256", password.encode(), sal, iteraciones)
+    return "pbkdf2_sha256${}${}${}".format(
+        iteraciones,
+        base64.b64encode(sal).decode(),
+        base64.b64encode(derivada).decode(),
+    )
+
+
+def verificar_password(password: str, hash_guardado: str) -> bool:
+    try:
+        algoritmo, iteraciones, sal, esperada = hash_guardado.split("$")
+        if algoritmo != "pbkdf2_sha256":
+            return False
+        derivada = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), base64.b64decode(sal), int(iteraciones)
+        )
+        return secrets.compare_digest(derivada, base64.b64decode(esperada))
+    except (ValueError, TypeError):
+        return False
+
+
+def _cargar_usuarios_configurados() -> dict[str, dict]:
+    crudo = os.getenv("AUTH_USUARIOS", "").strip()
+    if not crudo:
+        return {}
+    try:
+        lista = json.loads(crudo)
+        return {u["usuario"].strip().lower(): u for u in lista}
+    except (ValueError, TypeError, KeyError, AttributeError):
+        logger.error("AUTH_USUARIOS no es un JSON válido; se ignoran los usuarios configurados.")
+        return {}
+
+
+USUARIOS_CONFIGURADOS = _cargar_usuarios_configurados()
+
 
 # ============================================================
 # SCHEMAS
@@ -104,6 +152,11 @@ class AuthService:
         if not usuario or not password:
             return LoginResponse(exito=False, mensaje="Usuario y contraseña son obligatorios.")
 
+        # Un usuario configurado se valida solo contra su hash: no depende del
+        # Domain Controller ni cae a otras vías si la contraseña no coincide.
+        if usuario in USUARIOS_CONFIGURADOS:
+            return self._autenticar_configurado(usuario, password)
+
         if LDAP_HABILITADO:
             resultado = await self._autenticar_ldap(usuario, password)
             if resultado.exito:
@@ -117,6 +170,26 @@ class AuthService:
             logger.info("LDAP falló para %s, intentando autenticación local.", usuario)
 
         return self._autenticar_local(usuario, password)
+
+    def _autenticar_configurado(self, usuario: str, password: str) -> LoginResponse:
+        user_data = USUARIOS_CONFIGURADOS[usuario]
+        if not verificar_password(password, user_data.get("hash", "")):
+            return LoginResponse(exito=False, mensaje="Credenciales inválidas.")
+
+        nombre = user_data.get("nombre") or usuario
+        partes = nombre.split()
+        iniciales = "".join([p[0].upper() for p in partes[:2]]) if partes else "U"
+
+        return LoginResponse(
+            exito=True,
+            usuario=usuario,
+            nombre=nombre,
+            rol=user_data.get("rol", "Consultor"),
+            email=user_data.get("email", usuario if "@" in usuario else None),
+            iniciales=iniciales,
+            metodo="local",
+            mensaje="Autenticación local exitosa.",
+        )
 
     def _autenticar_local(self, usuario: str, password: str) -> LoginResponse:
         if not AUTH_LOCAL_HABILITADO:

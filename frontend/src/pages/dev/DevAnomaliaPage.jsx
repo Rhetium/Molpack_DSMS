@@ -99,6 +99,7 @@ function DetectorZScore({ d }) {
     <Seccion titulo={d.nombre} icono={Activity} color="#7c3aed" anomalias={d.anomalias_generadas}>
       <div className="text-xs text-gray-500 mb-3">
         Fichas de referencia: <strong>{d.n_fichas_referencia}</strong> (mínimo: {d.minimo_requerido})
+        {' '}| Nivel: <Badge texto={d.nivel_referencia} color="blue" />
         {!d.activo && <Badge texto="INACTIVO — fichas insuficientes" color="gray" />}
       </div>
       {d.campos.length === 0
@@ -109,9 +110,9 @@ function DetectorZScore({ d }) {
             columnas={[
               { key: 'nombre', label: 'Campo' },
               { key: 'valor', label: 'Valor' },
-              { key: 'media_historica', label: 'Media hist.' },
-              { key: 'std_historica', label: 'Desv. est.' },
-              { key: 'zscore', label: 'Z-Score', render: (v) => <strong>{v}</strong> },
+              { key: 'mediana', label: 'Mediana' },
+              { key: 'escala', label: 'Escala (MAD)' },
+              { key: 'zscore', label: 'Z robusto', render: (v) => <strong>{v ?? '∞'}</strong> },
               {
                 key: 'severidad',
                 label: 'Resultado',
@@ -163,23 +164,20 @@ function DetectorDuplicados({ d }) {
   return (
     <Seccion titulo={d.nombre} icono={Search} color="#d97706" anomalias={d.anomalias_generadas}>
       <div className="space-y-2 mb-4 text-xs">
-        <div><span className="text-gray-500">Nombre KItem:</span> <code className="bg-gray-100 px-1 rounded">{d.embedding_kitem_nombre}</code></div>
-        <div><span className="text-gray-500">Descripción KItem:</span> <code className="bg-gray-100 px-1 rounded">{d.embedding_kitem_descripcion}</code></div>
-        <div className="flex items-center gap-2">
-          <span className="text-gray-500">Tiene embedding:</span>
-          {d.tiene_embedding ? <Badge texto="Sí" color="green" /> : <Badge texto="No — búsqueda imposible" color="red" />}
-        </div>
-        <div className="text-gray-500">Umbral duplicado: advertencia ≥ {d.umbral_advertencia} | crítico ≥ {d.umbral_critico}</div>
+        <div className="text-gray-500">{d.nota}</div>
+        <div className="text-gray-500">Crítico si la similitud entre materiales ≥ {d.umbral_critico_material}</div>
       </div>
       {d.error && <div className="text-xs text-red-600 bg-red-50 rounded p-2 mb-3">Error: {d.error}</div>}
       {d.similares.length === 0
-        ? <p className="text-xs text-gray-400 italic">Sin fichas similares encontradas (umbral 0.5).</p>
+        ? <p className="text-xs text-gray-400 italic">Ninguna ficha de otro material coincide en medidas.</p>
         : (
           <TablaSimple
             filas={d.similares.map((s) => ({ ...s, _highlight: s.es_duplicado }))}
             columnas={[
-              { key: 'nombre', label: 'Ficha similar' },
-              { key: 'similitud', label: 'Similitud', render: (v) => <strong>{(v * 100).toFixed(1)}%</strong> },
+              { key: 'nombre', label: 'Ficha coincidente' },
+              { key: 'material', label: 'Material' },
+              { key: 'diferencia_relativa_media', label: 'Dif. media', render: (v) => `${(v * 100).toFixed(2)}%` },
+              { key: 'similitud_material', label: 'Similitud material', render: (v) => (v == null ? '—' : <strong>{(v * 100).toFixed(1)}%</strong>) },
               {
                 key: 'severidad',
                 label: 'Clasificación',

@@ -16,6 +16,8 @@
 | IP | `172.21.5.74` |
 | Hostname | `MKSVX64LNN10` |
 | FQDN | `mksvx64lnn10.molpack.org` |
+| Alias de acceso (usuarios) | `dsms.molpack.org` |
+| Puerto publicado | Solo TCP 443 (sin puerto 80 ni redirección) |
 | Usuario de despliegue | `dsmsadm` |
 | Alcance de red | VPN Molanca Planta, Oficina Caracas, Planta Valencia |
 
@@ -134,9 +136,9 @@ docker compose logs -f app        # sin errores de conexión ni de modelo
 docker compose logs nginx         # sin errores de certificado
 ```
 
-En el navegador, `https://mksvx64lnn10.molpack.org` debe mostrar el login, y
-`https://mksvx64lnn10.molpack.org/docs` el OpenAPI de FastAPI. `http://` debe
-redirigir al 443.
+En el navegador, `https://dsms.molpack.org` debe mostrar el login, y
+`https://dsms.molpack.org/docs` el OpenAPI de FastAPI. El puerto 80 no se
+publica: `http://` no responde, por diseño.
 
 Smoke test completo (login, auditoría, búsqueda semántica, exportación,
 rate limiting): sección 9 de [DESPLIEGUE_Y_SEGURIDAD.md](DESPLIEGUE_Y_SEGURIDAD.md).
@@ -190,7 +192,8 @@ Resueltos en el repositorio:
 
 Pendientes:
 
-- [ ] **Certificado de la CA interna** de Molpack para `mksvx64lnn10.molpack.org`
+- [ ] **Registro DNS** `dsms.molpack.org` → 172.21.5.74 (TI).
+- [ ] **Certificado de la CA interna** de Molpack para `dsms.molpack.org` (SAN también con `mksvx64lnn10.molpack.org`, nombre corto e IP)
       y, una vez confiable, **habilitar HSTS**.
 - [ ] **LDAPS (636)** en lugar de LDAP plano hacia el Domain Controller, con el
       certificado del DC confiable en el host.

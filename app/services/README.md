@@ -20,12 +20,13 @@ FichaService.crear(datos)
   └─ KItemService.crear_kitem()          # persiste kitem + material_comercial (si nuevo)
        ├─ EmbeddingService.generar()     # embedding async, actualiza kitem.embedding
        ├─ AnomaliaService.analizar_ficha()
-       │    ├─ Detector 1: z-score por campo
+       │    ├─ Detector 1: z-score robusto por campo (mediana + MAD)
        │    ├─ Detector 2: unidades inconsistentes
-       │    ├─ Detector 3: clasificación cruzada (coseno)
-       │    ├─ Detector 4: duplicado semántico (coseno)
+       │    ├─ Detector 3: duplicado por coincidencia numérica con otro material
+       │    ├─ Detector 4: clasificación cruzada (coseno)
        │    ├─ Detector 5: perfil numérico cruzado
-       │    └─ Detector 6: Isolation Forest multivariado
+       │    ├─ Detector 6: Isolation Forest multivariado
+       │    └─ Detector 7: rangos por categoría
        └─ AuditoriaService.registrar()
 ```
 
@@ -37,4 +38,4 @@ El modelo se entrena con `POST /anomalias/entrenar`. Genera:
 
 En predicción, usa el modelo de categoría si existe; si no, cae al global. Devuelve `None` si ningún modelo está disponible.
 
-El pipeline interno es: `SimpleImputer(mean) → StandardScaler → IsolationForest(n_estimators=100)`. Columnas con menos del 30% de datos válidos se excluyen del modelo.
+Entrena solo con fichas **Vigentes sin anomalías pendientes**. El pipeline interno es: `SimpleImputer(mean) → StandardScaler → IsolationForest(n_estimators=100)`, con las variables derivadas gramaje y relación alto/largo además de los campos numéricos. Columnas con menos del 30% de datos válidos se excluyen del modelo. El umbral de anomalía se calibra por modelo (percentil `ML_PERCENTIL_ANOMALIA` de los scores de entrenamiento) y se guarda en el `.pkl`; un modelo entrenado con otro conjunto de campos se ignora hasta reentrenar.

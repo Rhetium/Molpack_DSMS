@@ -75,12 +75,12 @@ Orden real de los detectores en `AnomaliaService.analizar_ficha`:
 
 | Detector | Tipo | Descripción |
 |---|---|---|
-| 1 | `valor_atipico` | Z-score por campo numérico (σ ≥ 2 → advertencia, σ ≥ 3 → crítico) |
+| 1 | `valor_atipico` | Z-score robusto (mediana + MAD) por campo y por gramaje, contra el mismo material → familia → categoría (≥ 3.5 advertencia, ≥ 6 crítico) |
 | 2 | `unidad_inconsistente` | Unidad distinta a la mayoritaria (≥ 70% uso) |
-| 3 | `duplicado_semantico` | Similitud coseno ≥ 0.95 con ficha de **otro** material (crítico ≥ 0.98) |
+| 3 | `duplicado_semantico` | Ficha de **otro** material con largo, ancho, alto y peso iguales dentro de tolerancia (crítico si los materiales son semánticamente ≥ 0.85 similares) |
 | 4 | `clasificacion_cruzada` | Material en categoría equivocada por similitud semántica (≥ 0.85) |
 | 5 | `perfil_numerico_cruzado` | Perfil numérico más cercano a otra categoría (ratio < 0.7) |
-| 6 | `atipico_multivariado` | Isolation Forest — combinación de campos inusual |
+| 6 | `atipico_multivariado` | Isolation Forest con gramaje y relación alto/largo; umbral calibrado por modelo |
 | 7 | `rango_categoria` | Dimensiones fuera del rango duro esperado por categoría |
 
 Los modelos ML (detector 6) se entrenan con `POST /anomalias/entrenar` y se guardan en `app/ml_models/`.

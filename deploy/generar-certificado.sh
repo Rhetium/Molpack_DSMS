@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================
-# Molpack DSMS — certificado TLS para mksvx64lnn10.molpack.org
+# Molpack DSMS — certificado TLS para dsms.molpack.org (alias del servicio)
+# y mksvx64lnn10.molpack.org (host)
 #
 #   ./deploy/generar-certificado.sh csr           # camino recomendado
 #   ./deploy/generar-certificado.sh autofirmado   # provisional
@@ -15,6 +16,7 @@
 # =============================================================
 set -euo pipefail
 
+ALIAS="${ALIAS:-dsms.molpack.org}"
 FQDN="${FQDN:-mksvx64lnn10.molpack.org}"
 HOSTNAME_CORTO="${HOSTNAME_CORTO:-MKSVX64LNN10}"
 IP="${IP:-172.21.5.74}"
@@ -23,9 +25,9 @@ DIAS="${DIAS:-825}"
 DESTINO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/certs"
 mkdir -p "$DESTINO"
 
-# Los SAN son lo que el navegador valida; el CN ya no se mira. Van los tres
-# nombres porque al sistema se entra indistintamente por FQDN, por nombre corto
-# o por IP, y un nombre ausente aca da error de certificado.
+# Los SAN son lo que el navegador valida; el CN ya no se mira. Va el alias,
+# que es por donde entran los usuarios, y ademas FQDN, nombre corto e IP para
+# administracion: un nombre ausente aca da error de certificado.
 CONFIG="$(mktemp)"
 trap 'rm -f "$CONFIG"' EXIT
 cat > "$CONFIG" <<EOF
@@ -38,10 +40,10 @@ prompt             = no
 C  = VE
 O  = Molpack
 OU = Tecnologia de la Informacion
-CN = $FQDN
+CN = $ALIAS
 
 [ext]
-subjectAltName   = DNS:$FQDN, DNS:$HOSTNAME_CORTO, IP:$IP
+subjectAltName   = DNS:$ALIAS, DNS:$FQDN, DNS:$HOSTNAME_CORTO, IP:$IP
 keyUsage         = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 EOF
